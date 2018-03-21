@@ -9,6 +9,7 @@ import itertools
 from collections import OrderedDict, Callable
 import os
 from tqdm import tqdm_notebook
+from sklearn.model_selection import train_test_split
 
 
 # -------------------- Data Utils --------------------
@@ -43,6 +44,20 @@ class IndexMap():
   
     def __repr__(self):
         return 'IndexMap ({} unique objects, starting at {})'.format(len(self), self.start_index)
+    
+    
+def train_val_test_split(*arrays, **kwargs):
+    """Like sklearn.model_selection.train_test_split, but split into three subsets."""
+    if 'train_size' in kwargs:
+        raise ValueError('Please specify val_size and test_size, do not use train_size')
+    val_size = kwargs.pop('val_size', None)
+    test_size = kwargs.pop('test_size', None)
+    shuffle = kwargs.pop('shuffle', True)
+    random_state = kwargs.pop('random_state', None)
+    
+    train_val, test = train_test_split(*arrays, test_size=test_size, random_state=random_state, shuffle=shuffle)
+    train, val = train_test_split(train_val, test_size=val_size, shuffle=False)
+    return train, val, test
     
     
 # -------------------- Visualization Utils --------------------
@@ -200,6 +215,7 @@ class History(OrderedDefaultDict):
 
         for name, ax in zip(names, axes):
             plt.sca(ax)
+            plt.grid()
             line, = plt.plot(self[name], next(default_color_cycle))
             plt.ylabel(self.long_names[name])
             if plot_val and 'val_' + name in self:
