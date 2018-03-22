@@ -11,6 +11,8 @@ import os
 from tqdm import tqdm_notebook
 from sklearn.model_selection import train_test_split
 
+import torch
+
 
 # -------------------- Data Utils --------------------
 
@@ -104,19 +106,41 @@ def split_into_batches(*arrays, **kwargs):
     batch_indices_list = np.array_split(np.arange(len(arrays[0])), np.arange(batch_size, len(arrays[0]), batch_size))
     
     if len(arrays) == 1:
-        return (arrays[0][batch_indices] for batch_indices in batch_indices_list)
+        return [arrays[0][batch_indices] for batch_indices in batch_indices_list]
     else:
-        return ([arr[batch_indices] for arr in arrays] for batch_indices in batch_indices_list)
+        return [[arr[batch_indices] for arr in arrays] for batch_indices in batch_indices_list]
     
 
-def predict(net, samples, batch_size=256):
+def predict(net, *arrays, **kwargs):
     """Run `net` on `samples` in batches of size `batch_size` (batched version of a normal forward pass)."""
+    batch_size = kwargs.get('batch_size', 128)
+    show_progress = kwargs.get('show_progress', False)
+    move_to_cpu = kwargs.get('move_to_cpu', False)
+    
     was_training = net.training
     net.eval()
     
+    num_batches = int(np.ceil(len(arrays[0]) / batch_size))
+    batches = split_into_batches(*arrays, batch_size=batch_size, shuffle=False)
+    if show_progress:
+        batches = tqdm_notebook(batches, total=num_batches)
+        
+    # TODO: Only works for single output. Make it work for multiple outputs as well.
     outputs = []
-    for batch_samples in split_into_batches(samples, batch_size):
-        outputs.append(net(batch_samples))
+    for batch_arrays in batches:
+        #print(batch_arrays)
+        if len(arrays) == 1:
+            output = net(batch_arrays)
+        else:
+            output = net(*batch_arrays)
+        if move_to_cpu:
+            #del output
+            cpu_output = output.cpu()
+            del output
+            
+            #torch.cuda.empty_cache()
+        outputs.append(cpu_output)
+        #outputs.append(torch.ones(1))
         
     if was_training:
         net.train()
