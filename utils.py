@@ -134,12 +134,9 @@ def predict(net, *arrays, **kwargs):
         else:
             output = net(*batch_arrays)
         if move_to_cpu:
-            #del output
-            cpu_output = output.cpu()
-            del output
-            
-            #torch.cuda.empty_cache()
-        outputs.append(cpu_output)
+            output = output.cpu()
+            torch.cuda.empty_cache()
+        outputs.append(output)
         #outputs.append(torch.ones(1))
         
     if was_training:
@@ -233,17 +230,34 @@ class History(OrderedDefaultDict):
     def plot(self, *names, **kwargs):
         plot_val = kwargs.get('plot_val', True)
         figsize = kwargs.get('figsize', None)
+        compare = kwargs.get('compare', None)
+        xlim = kwargs.get('xlim')
         
-        default_color_cycle = itertools.cycle(plt.rcParams['axes.prop_cycle'].by_key()['color'])
+        if compare is None:
+            compare = []
+        else:
+            for i in range(len(compare)):
+                try:
+                    compare[i] = History.load(compare[i])
+                except:
+                    pass
+        
         fig, axes = plt.subplots(len(names), sharex=True, figsize=figsize)
 
         for name, ax in zip(names, axes):
             plt.sca(ax)
             plt.grid()
-            line, = plt.plot(self[name], next(default_color_cycle))
             plt.ylabel(self.long_names[name])
-            if plot_val and 'val_' + name in self:
-                plt.plot(self['val_' + name], color=line.get_color(), linestyle='--')
+            if xlim:
+                plt.xlim(*xlim)
+            
+            color_cycle = itertools.cycle(plt.rcParams['axes.prop_cycle'].by_key()['color'])  # default mpl colors
+            for h in [self] + compare:
+                color = next(color_cycle)
+                if name in h:
+                    plt.plot(h[name], color=color)
+                if plot_val and 'val_' + name in h:
+                    plt.plot(h['val_' + name], color=color, linestyle='--')
 
         axes[-1].set_xlabel('Epoch')
         
