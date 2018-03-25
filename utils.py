@@ -116,6 +116,7 @@ def predict(net, *arrays, **kwargs):
     batch_size = kwargs.get('batch_size', 128)
     show_progress = kwargs.get('show_progress', False)
     move_to_cpu = kwargs.get('move_to_cpu', False)
+    move_to_cuda = kwargs.get('move_to_cuda', False)
     
     was_training = net.training
     net.eval()
@@ -130,14 +131,28 @@ def predict(net, *arrays, **kwargs):
     for batch_arrays in batches:
         #print(batch_arrays)
         if len(arrays) == 1:
+            if move_to_cuda:
+                try:
+                    batch_arrays = batch_arrays.cuda()
+                except:
+                    print('Could not move input to cuda')
             output = net(batch_arrays)
+            del batch_arrays
         else:
+            if move_to_cuda:
+                for i in range(len(batch_arrays)):
+                    try:
+                        batch_arrays[i] = batch_arrays[i].cuda()
+                    except:
+                        print('Could not move input', i, 'to cuda')
             output = net(*batch_arrays)
+            for arr in batch_arrays:
+                del arr
         if move_to_cpu:
-            output = output.cpu()
-            torch.cuda.empty_cache()
+            output_cuda = output
+            output = output_cuda.cpu()
+            del output_cuda
         outputs.append(output)
-        #outputs.append(torch.ones(1))
         
     if was_training:
         net.train()
