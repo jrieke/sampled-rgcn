@@ -115,11 +115,16 @@ def predict(net, *arrays, **kwargs):
     """Run `net` on `samples` in batches of size `batch_size` (batched version of a normal forward pass)."""
     batch_size = kwargs.get('batch_size', 128)
     show_progress = kwargs.get('show_progress', False)
-    move_to_cpu = kwargs.get('move_to_cpu', False)
-    move_to_cuda = kwargs.get('move_to_cuda', False)
+    # TODO: Maybe change to argument 'keep_variable' or 'retain_variable', which is False by default.
+    to_tensor = kwargs.get('to_tensor', False)
+    #move_to_cuda = kwargs.get('move_to_cuda', False)
+    forward_kwargs = kwargs.get('forward_kwargs', None)
     
-    was_training = net.training
-    net.eval()
+    if forward_kwargs is None:
+        forward_kwargs = {}
+    
+    #was_training = net.training
+    #net.eval()
     
     num_batches = int(np.ceil(len(arrays[0]) / batch_size))
     batches = split_into_batches(*arrays, batch_size=batch_size, shuffle=False)
@@ -129,33 +134,18 @@ def predict(net, *arrays, **kwargs):
     # TODO: Only works for single output. Make it work for multiple outputs as well.
     outputs = []
     for batch_arrays in batches:
-        #print(batch_arrays)
         if len(arrays) == 1:
-            if move_to_cuda:
-                try:
-                    batch_arrays = batch_arrays.cuda()
-                except:
-                    print('Could not move input to cuda')
-            output = net(batch_arrays)
-            del batch_arrays
+            output = net(batch_arrays, **forward_kwargs)
         else:
-            if move_to_cuda:
-                for i in range(len(batch_arrays)):
-                    try:
-                        batch_arrays[i] = batch_arrays[i].cuda()
-                    except:
-                        print('Could not move input', i, 'to cuda')
-            output = net(*batch_arrays)
-            for arr in batch_arrays:
-                del arr
-        if move_to_cpu:
-            output_cuda = output
-            output = output_cuda.cpu()
-            del output_cuda
+            output = net(*batch_arrays, **forward_kwargs)
+        if to_tensor:
+            #output_cuda = output
+            output = output.data
+            #del output.cuda
         outputs.append(output)
         
-    if was_training:
-        net.train()
+    #if was_training:
+    #    net.train()
         
     return torch.cat(outputs)
     
@@ -217,6 +207,7 @@ class History(OrderedDefaultDict):
     def __init__(self):
         super(History, self).__init__(list)
         self.long_names = {}
+        # TODO: Add timestamp, description, and parameters fields.
         
     def log_metric(self, name, value, val_value=None, long_name=None, print_=False):
         self[name].append(value)
@@ -242,6 +233,7 @@ class History(OrderedDefaultDict):
         else:
             return {name: np.mean(values) for name, values in self.items()}
         
+    # TODO: Make this method both a class method and static (to compare multiple logs).
     def plot(self, *names, **kwargs):
         plot_val = kwargs.get('plot_val', True)
         figsize = kwargs.get('figsize', None)
@@ -285,6 +277,7 @@ class History(OrderedDefaultDict):
     #        print(('{:' + str(max_length_names+4) + '}{}').format(self.long_names[name] + ':', self[name][-1]))
         
         
+    # TODO: Maybe print timestamp, description, parameters here.
     def summary(self, *names):
         if not names:
             names = self.keys()
@@ -294,6 +287,7 @@ class History(OrderedDefaultDict):
             print(('{:' + str(max_length_names+4) + '}{}').format(self.long_names[name] + ':', self[name][-1]))
         print()
         
+    # TODO: Save and load as json (via json.dumps(self.__dict__)).
     def save(self, filename):
         df = pd.DataFrame.from_dict(self)
         df = df.rename(columns=lambda name: '{} [{}]'.format(name, self.long_names[name]))
