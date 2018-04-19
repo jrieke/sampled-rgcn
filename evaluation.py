@@ -71,7 +71,7 @@ class RankingEvaluation(object):
         return rank
     
     
-    def __call__(self, embedding_model, scoring_model, verbose=False, show_progress=False, forward_kwargs=None):
+    def __call__(self, embedding_model, scoring_model, verbose=False, show_progress=False):
         
         #print('Running rank evaluation for triples:')
         #print(self.triples[:5])
@@ -80,7 +80,7 @@ class RankingEvaluation(object):
         
         # TODO: Maybe refactor this by giving all_node_embeddings as an argument here. Then each model can compute the node embeddings itselves (or if it's a simple embedding model, just give the embedding matrix), and this class only does the scoring. Then, add a function get_embedding_matrix() to RGC-layer that yield a tensor with the complete embedding matrix.
         #all_node_embeddings = embedding_model(np.arange(self.num_nodes))
-        all_node_embeddings = utils.predict(embedding_model, np.arange(self.num_nodes), batch_size=32, to_tensor=True, forward_kwargs=forward_kwargs)
+        all_node_embeddings = utils.predict(embedding_model, np.arange(self.num_nodes), batch_size=32, to_tensor=True)
         ranks = []
 
         for i, triple in enumerate(tqdm_notebook(self.triples)) if show_progress else enumerate(self.triples):

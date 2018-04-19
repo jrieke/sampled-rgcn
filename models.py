@@ -120,34 +120,46 @@ class TransE(BaseEmbeddingModel):
 class UnsupervisedRGCN(nn.Module):
 
     # TODO: Add Dropout.
-    def __init__(self, num_nodes, num_relations, relational_adj_dict, node_features=None, embedding_size=128, dist_mult_dropout=0, activation=F.relu):
+    def __init__(self, num_nodes, num_relations, relational_adj_dict, node_features=None, embedding_size=128, 
+                 dist_mult_dropout=0, num_sample_train=10, num_sample_eval=None, activation=F.relu, regularization=None):
         nn.Module.__init__(self)
         
         if node_features is not None:
             # Use a dense embedding matrix initialized from node_features.
-            # TODO: Maybe give node_features as tensor in the first place.
             node_features_size = node_features.shape[1]
-            features_embedding = nn.Embedding(num_nodes, node_features_size)
-            features_embedding.weight = nn.Parameter(torch.FloatTensor(node_features), requires_grad=False)
-            print('Initialized from node_features')
+            node_features_embedding = nn.Embedding(num_nodes, node_features_size)
+            node_features_embedding.weight = nn.Parameter(torch.FloatTensor(node_features), requires_grad=False)
+            print('Initialized from node_features with', node_features_size, 'features')
         else:
             # Use a one-hot embedding that is generated on the fly during training.
             # Saves 0.8 GB GPU memory on FB15k-237 without increasing the runtime 
             # (vs using a node_features matrix with one-hot embeddings).
             node_features_size = num_nodes
-            features_embedding = OneHotEmbedding(num_nodes, cuda=True)
+            node_features_embedding = OneHotEmbedding(num_nodes, cuda=True)
             print('Initialized with OneHotEmbedding')
-        
-        self.graph_conv1 = RelationalGraphConvolution(node_features_size, embedding_size, num_nodes, num_relations, 
-                                                      features_embedding, relational_adj_dict, activation=activation)
+            
+        if regularization == 'block':
+            # Stack one more linear layer between node features and R-GCN, like in original paper.
+            # TODO: Use bias here or not?
+            self.additional_layer = nn.Linear(node_features_size, embedding_size)
+            node_features_embedding_and_additional_layer = lambda nodes: self.additional_layer(node_features_embedding(nodes))
+            
+            self.graph_conv1 = RelationalGraphConvolution(embedding_size, embedding_size, num_nodes, num_relations, 
+                                                          node_features_embedding_and_additional_layer, relational_adj_dict, 
+                                                          num_sample_train, num_sample_eval, activation, regularization)
+        else:
+            self.graph_conv1 = RelationalGraphConvolution(node_features_size, embedding_size, num_nodes, num_relations, 
+                                                          node_features_embedding, relational_adj_dict, 
+                                                          num_sample_train, num_sample_eval, activation, regularization)
         self.graph_conv1.name='conv1'
         self.graph_conv2 = RelationalGraphConvolution(embedding_size, embedding_size, num_nodes, num_relations, 
-                                                      self.graph_conv1, relational_adj_dict, activation=activation)
+                                                      self.graph_conv1, relational_adj_dict, 
+                                                      num_sample_train, num_sample_eval, activation, regularization)
         self.graph_conv2.name='conv2'
         # TODO: Rename to decoder to make it more general.
         self.dist_mult = DistMultDecoder(embedding_size, num_relations, dist_mult_dropout)
         
-    def forward(self, triples, num_sample=10):
+    def forward(self, triples):
         # TODO: This computes lots of duplicates if nodes appear as subject and object.
         #       As a quick solution, stack subjects and objects, run them through the network together, 
         #       and then separate the embeddings. Check how this changes memory requirements.
@@ -158,8 +170,8 @@ class UnsupervisedRGCN(nn.Module):
 #         object_embeddings = all_embeddings[len(subjects):]
 
         
-        subject_embeddings = self.graph_conv2(triples[:, 0], num_sample=num_sample)  # implicitly calls underlying conv layers
-        object_embeddings = self.graph_conv2(triples[:, 1], num_sample=num_sample)  # implicitly calls underlying conv layers
+        subject_embeddings = self.graph_conv2(triples[:, 0])  # implicitly calls underlying conv layers
+        object_embeddings = self.graph_conv2(triples[:, 1])  # implicitly calls underlying conv layers
         
         scores = self.dist_mult(subject_embeddings, object_embeddings, triples[:, 2])
         del subject_embeddings, object_embeddings

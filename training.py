@@ -38,7 +38,7 @@ class SimplifiedMarginRankingLoss(nn.MarginRankingLoss):
 # TODO: Replace train_forward_kwargs and val_forward_kwargs by num_sample_train and num_sample_eval.
 # TODO: Refactor to use TensorDataset. 
 # TODO: Add train_ranker/val_ranker.
-def train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, train_ranker, val_ranker, embedding_func, scoring_func, num_epochs, batch_size, margin, train_forward_kwargs, val_forward_kwargs, history=None, save_best_to=None):
+def train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, train_ranker, val_ranker, embedding_func, scoring_func, num_epochs, batch_size, margin, history=None, save_best_to=None):
     
     if history is None:
         history = utils.History()
@@ -58,8 +58,8 @@ def train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, tra
         for batch, batch_triples in enumerate(batches):
 
             optimizer.zero_grad()
-            output = net(batch_triples, **train_forward_kwargs)
-            output_negative = net(sample_negatives(batch_triples, num_nodes), **train_forward_kwargs)
+            output = net(batch_triples)#, **train_forward_kwargs)
+            output_negative = net(sample_negatives(batch_triples, num_nodes))#, **train_forward_kwargs)
 
             loss = loss_function(output, output_negative)
             loss.backward()
@@ -87,8 +87,8 @@ def train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, tra
 
         net.eval()
         # TODO: Set variables to volatile=True when evaluating on the validation set to save GPU memory (instead of or in combination with to_tensor).
-        val_output = utils.predict(net, val_triples, forward_kwargs=val_forward_kwargs, batch_size=32, to_tensor=True)
-        val_output_negative = utils.predict(net, sample_negatives(val_triples, num_nodes), forward_kwargs=val_forward_kwargs, batch_size=32, to_tensor=True)
+        val_output = utils.predict(net, val_triples, batch_size=32, to_tensor=True)
+        val_output_negative = utils.predict(net, sample_negatives(val_triples, num_nodes), batch_size=32, to_tensor=True)
         val_loss = loss_function(val_output, val_output_negative)
 
         # TODO: Maybe implement these metrics in a batched fashion.
@@ -106,33 +106,34 @@ def train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, tra
 
         print('Running rank evaluation for train in {} setting...'.format('filtered' if train_ranker.filtered else 'raw'))
         mean_rank, mean_rec_rank, hits_1, hits_3, hits_10 = train_ranker(
-            embedding_func, scoring_func, forward_kwargs=val_forward_kwargs)
+            embedding_func, scoring_func)
         print('Running rank evaluation for val in {} setting...'.format('filtered' if val_ranker.filtered else 'raw'))
         val_mean_rank, val_mean_rec_rank, val_hits_1, val_hits_3, val_hits_10 = val_ranker(
-            embedding_func, scoring_func, forward_kwargs=val_forward_kwargs)
+            embedding_func, scoring_func)
 
         history.log_metric('mean_rank', mean_rank, val_mean_rank, 'Mean Rank', print_=True)
         history.log_metric('mean_rec_rank', mean_rec_rank, val_mean_rec_rank, 'Mean Rec Rank', print_=True)
         history.log_metric('hits_1', hits_1, val_hits_1, 'Hits@1', print_=True)
         history.log_metric('hits_3', hits_3, val_hits_3, 'Hits@3', print_=True)
         history.log_metric('hits_10', hits_10, val_hits_10, 'Hits@10', print_=True)
-
-        print('-'*80)
-        print()
         
         if save_best_to is not None and (epoch == 0 or 
                                          history['val_mean_rec_rank'][-1] >= np.max(history['val_mean_rec_rank'][:-1])):
             # TODO: Using save on the model here directly gives an error. 
             torch.save(net.state_dict(), save_best_to)
             print()
-            print('Saving model after epoch {} to {}'.format(epoch+1, model_filename))
+            print('Saving model after epoch {} to {}'.format(epoch+1, save_best_to))
+            
+        
+        print('-'*80)
+        print()
         
     return history
 
 
 # TODO: Make validation code work.
 # TODO: Add train_ranker/val_ranker.
-def train_via_classification(net, train_triples, val_triples, optimizer, train_ranker, val_ranker, embedding_func, scoring_func, num_epochs, batch_size, num_negatives, train_forward_kwargs, val_forward_kwargs, history=None, save_best_to=None):
+def train_via_classification(net, train_triples, val_triples, optimizer, num_nodes, train_ranker, val_ranker, embedding_func, scoring_func, num_epochs, batch_size, num_negatives, history=None, save_best_to=None):
     
     if history is None:
         history = utils.History()
@@ -168,7 +169,7 @@ def train_via_classification(net, train_triples, val_triples, optimizer, train_r
                 batch_labels = batch_labels.cuda()
 
             optimizer.zero_grad()
-            output = net(batch_triples, **train_forward_kwargs)
+            output = net(batch_triples)#, **train_forward_kwargs)
 
             loss = loss_function(output, batch_labels)
             loss.backward()
@@ -220,25 +221,23 @@ def train_via_classification(net, train_triples, val_triples, optimizer, train_r
 
 
         print('Running rank evaluation for train in {} setting...'.format('filtered' if train_ranker.filtered else 'raw'))
-        mean_rank, mean_rec_rank, hits_1, hits_3, hits_10 = train_ranker(
-            embedding_func, scoring_func, forward_kwargs=val_forward_kwargs)
+        mean_rank, mean_rec_rank, hits_1, hits_3, hits_10 = train_ranker(embedding_func, scoring_func)
         print('Running rank evaluation for val in {} setting...'.format('filtered' if val_ranker.filtered else 'raw'))
-        val_mean_rank, val_mean_rec_rank, val_hits_1, val_hits_3, val_hits_10 = val_ranker(
-            embedding_func, scoring_func, forward_kwargs=val_forward_kwargs)
+        val_mean_rank, val_mean_rec_rank, val_hits_1, val_hits_3, val_hits_10 = val_ranker(embedding_func, scoring_func)
 
         history.log_metric('mean_rank', mean_rank, val_mean_rank, 'Mean Rank', print_=True)
         history.log_metric('mean_rec_rank', mean_rec_rank, val_mean_rec_rank, 'Mean Rec Rank', print_=True)
         history.log_metric('hits_1', hits_1, val_hits_1, 'Hits@1', print_=True)
         history.log_metric('hits_3', hits_3, val_hits_3, 'Hits@3', print_=True)
         history.log_metric('hits_10', hits_10, val_hits_10, 'Hits@10', print_=True)
-
-        print('-'*80)
-        print()
         
         if save_best_to is not None and (epoch == 0 or history['val_mean_rec_rank'][-1] >= np.max(history['val_mean_rec_rank'][:-1])):
             # TODO: Using save on the model here directly gives an error. 
             torch.save(net.state_dict(), save_best_to)
             print()
-            print('Saving model after epoch {} to {}'.format(epoch+1, model_filename))
+            print('Saving model after epoch {} to {}'.format(epoch+1, save_best_to))
+            
+        print('-'*80)
+        print()
         
     return history
