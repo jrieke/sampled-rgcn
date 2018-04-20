@@ -131,6 +131,18 @@ def train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, tra
     return history
 
 
+
+class TriplesDataset(TensorDataset):
+    # TODO: Extend this to create negative triples on the fly. 
+    
+    def __init__(self, triples, num_nodes, num_negatives=1):
+        triples_and_negatives = np.vstack([triples, sample_negatives(triples, num_nodes, num_negatives)])
+        labels = torch.zeros(len(triples_and_negatives), 1)
+        labels[:len(triples), 0] = 1
+        TensorDataset.__init__(self, torch.from_numpy(triples_and_negatives), labels)
+       
+    
+
 # TODO: Make validation code work.
 # TODO: Add train_ranker/val_ranker.
 def train_via_classification(net, train_triples, val_triples, optimizer, num_nodes, train_ranker, val_ranker, embedding_func, scoring_func, num_epochs, batch_size, num_negatives, history=None, save_best_to=None):
@@ -143,25 +155,16 @@ def train_via_classification(net, train_triples, val_triples, optimizer, num_nod
         print('Epoch {}/{}'.format(epoch+1, num_epochs))
         net.train()
 
-        num_negatives = 1
-        train_and_negatives = np.vstack([train_triples, sample_negatives(train_triples, num_nodes, num_negatives)])
-
-        labels = torch.zeros(len(train_and_negatives), 1)
-        labels[:len(train_triples), 0] = 1
-
-        # TODO: Maybe implement negative sampling directly in the dataset class, so we don't have to create the dataset here each time.
-        train_dataset = TensorDataset(torch.from_numpy(train_and_negatives), labels)
+        train_dataset = TriplesDataset(train_triples, num_nodes, num_negatives)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-
-        batches = tqdm_notebook(train_loader)
+        train_loader_tqdm = tqdm_notebook(train_loader)
         batches_history = utils.History()
 
-    #     running_metrics = collections.defaultdict(lambda: 0)
+        #running_metrics = collections.defaultdict(lambda: 0)
 
+        for batch, (batch_triples, batch_labels) in enumerate(train_loader_tqdm):
 
-        for batch, (batch_triples, batch_labels) in enumerate(batches):
-
-            batch_labels = Variable(batch_labels, requires_grad=False)
+            batch_labels = Variable(batch_labels)
 
             # TODO: Maybe do force_cpu or cuda as parameter here.
             if torch.cuda.is_available():# and not force_cpu:
@@ -169,55 +172,61 @@ def train_via_classification(net, train_triples, val_triples, optimizer, num_nod
                 batch_labels = batch_labels.cuda()
 
             optimizer.zero_grad()
-            output = net(batch_triples)#, **train_forward_kwargs)
-
+            output = net(batch_triples)
             loss = loss_function(output, batch_labels)
             loss.backward()
             optimizer.step()
 
-    #         print(batch_triples)
-    #         print(F.sigmoid(output))
-    #         print(batch_labels)
-            #print()
-
             # TODO: Especially getting the loss takes quite some time (as much as a single prediction for dist mult), maybe replace it by a running metric directly in torch.
             batches_history.log_metric('loss', loss.data[0])
             batches_history.log_metric('acc', (F.sigmoid(output).round() == batch_labels).float().mean().data[0])
-            #batches_history.log_metric('mean_diff', (output - output_negative).mean().data[0])
-            #batches_history.log_metric('median_diff', (output - output_negative).median().data[0])
-    #         running_metrics['loss'] += loss
-    #         running_metrics['acc'] += (output > output_negative).float().mean()
-    #         running_metrics['mean_diff'] += (output - output_negative).mean()
-    #         running_metrics['median_diff'] += (output - output_negative).median()
+            #running_metrics['loss'] += loss.data[0]
+            #running_metrics['acc'] += (F.sigmoid(output).round() == batch_labels).float().mean().data[0]
 
             if batch % 10 == 0:
-                batches.set_postfix(batches_history.latest())
+                train_loader_tqdm.set_postfix(batches_history.latest())
 
-            # TODO: It seems like this does not free up the GPU memory. Check it again and try to fix.
-            #del output, output_negative, loss
-            del output, loss
-
-    #     for key in running_metrics:
-    #         running_metrics[key] /= len(batches)
+        #for key in running_metrics:
+        #    running_metrics[key] /= len(batches)
 
 
+        
         net.eval()
-        # TODO: Set variables to volatile=True when evaluating on the validation set to save GPU memory (instead of or in combination with to_tensor).
-    #     val_output = utils.predict(net, val_triples, forward_kwargs=val_forward_kwargs, batch_size=32, to_tensor=True)
-    #     val_output_negative = utils.predict(net, sample_negatives(val_triples, num_nodes), forward_kwargs=val_forward_kwargs, batch_size=32, to_tensor=True)
-    #     val_loss = loss_function(val_output, val_output_negative)
+        
+        val_dataset = TriplesDataset(val_triples, num_nodes, num_negatives)
+        val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False)
+        val_batches_history = utils.History()
+        
+        for batch, (batch_triples, batch_labels) in enumerate(val_loader):
+
+            # TODO: Set all variables to volatile here. This doesn't have an effect yet, because the triples 
+            #       are disconnected from the rest of the computation graph.
+            batch_labels = Variable(batch_labels, volatile=True)
+
+            # TODO: Maybe do force_cpu or cuda as parameter here.
+            if torch.cuda.is_available():# and not force_cpu:
+                batch_triples = batch_triples.cuda()
+                batch_labels = batch_labels.cuda()
+
+            output = net(batch_triples)
+            loss = loss_function(output, batch_labels)
+
+            # TODO: Especially getting the loss takes quite some time (as much as a single prediction for dist mult), maybe replace it by a running metric directly in torch.
+            val_batches_history.log_metric('loss', loss.data[0])
+            val_batches_history.log_metric('acc', (F.sigmoid(output).round() == batch_labels).float().mean().data[0])
+            #running_metrics['loss'] += loss.data[0]
+            #running_metrics['acc'] += (F.sigmoid(output).round() == batch_labels).float().mean().data[0]
+
+
+        #for key in running_metrics:
+        #    running_metrics[key] /= len(batches)
 
         # TODO: Maybe implement these metrics in a batched fashion.
-    #     history.log_metric('loss', batches_history.mean('loss'), 
-    #                        val_loss.data[0], 'Loss', print_=True)
-    #     history.log_metric('acc', batches_history.mean('acc'), 
-    #                        (val_output > val_output_negative).float().mean(), 'Accuracy', print_=True)
-    #     history.log_metric('mean_diff', batches_history.mean('mean_diff'), 
-    #                        (val_output - val_output_negative).mean(), 'Mean Difference', print_=True)
-    #     history.log_metric('median_diff', batches_history.mean('median_diff'), 
-    #                        (val_output - val_output_negative).median(), 'Median Difference', print_=True)
+        history.log_metric('loss', batches_history.mean('loss'), 
+                           val_batches_history.mean('loss'), 'Loss', print_=True)
+        history.log_metric('acc', batches_history.mean('acc'), 
+                           val_batches_history.mean('acc'), 'Accuracy', print_=True)
 
-    #     del val_output, val_output_negative, val_loss
 
 
         print('Running rank evaluation for train in {} setting...'.format('filtered' if train_ranker.filtered else 'raw'))

@@ -279,10 +279,10 @@ class RelationalGraphConvolution(GraphConvolution):
         #row_indices_per_relation = collections.defaultdict(list)
         
         #masks = Variable(self.zero.repeat(self.num_relations, len(nodes), len(unique_neighbors)))
-        for i in range(len(masks)):
+        #for i in range(len(masks)):
             # TODO: Do this for the whole tensor at once.
-            num_neighbors_per_node = masks[i].sum(1, keepdim=True)
-            masks[i] /= num_neighbors_per_node + 1e-10  # prevent zero division
+        #    num_neighbors_per_node = masks[i].sum(1, keepdim=True)
+        #    masks[i] /= num_neighbors_per_node + 1e-10  # prevent zero division
             
         # TODO: Check that mask is initialized to 0 each time.
         mask = Variable(self.zero.repeat(len(nodes), len(unique_neighbors)), requires_grad=False)
