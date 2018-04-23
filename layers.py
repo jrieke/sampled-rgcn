@@ -158,11 +158,13 @@ class RelationalGraphConvolution(GraphConvolution):
         if self.regularization is None:
             # Storing the relation weights in a ParameterList instead of a 3D tensor is more memory-efficient,
             # because the gradient is only computed for this specific weight then.
-            self.relation_weights = nn.ParameterList()
-            for relation in range(num_relations):
-                weight = nn.Parameter(torch.FloatTensor(out_features, in_features))
-                nn.init.xavier_uniform(weight)
-                self.relation_weights.append(weight)
+            #self.relation_weights = nn.ParameterList()
+            #for relation in range(num_relations):
+            #    weight = nn.Parameter(torch.FloatTensor(out_features, in_features))
+            #    nn.init.xavier_uniform(weight)
+            #    self.relation_weights.append(weight)
+            self.relation_weights = nn.Parameter(torch.FloatTensor(num_relations, out_features, in_features))
+            nn.init.xavier_uniform(self.relation_weights)
         elif regularization == 'basis':
             self.basis_weights = nn.Parameter(torch.FloatTensor(num_basis_weights, out_features, in_features))
             nn.init.xavier_uniform(self.basis_weights)
@@ -277,50 +279,44 @@ class RelationalGraphConvolution(GraphConvolution):
         # TODO: Try creating torch.zeros(1, 1).cuda() in the constructor, and expanding it here via repeat.
         
         
-        #column_indices_per_relation = collections.defaultdict(list)
-        #row_indices_per_relation = collections.defaultdict(list)
-        
         # This is the solution with a 3D tensor using all relations at once.
         #masks = Variable(self.zero.repeat(self.num_relations, len(nodes), len(unique_neighbors)))
-        #for i in range(len(masks)):
-            # TODO: Do this for the whole tensor at once.
-        #    num_neighbors_per_node = masks[i].sum(1, keepdim=True)
-        #    masks[i] /= num_neighbors_per_node + 1e-10  # prevent zero division
+        #masks = masks.clone()
+        masks = Variable(torch.zeros(self.num_relations, len(nodes), len(unique_neighbors)))
+        if self.is_cuda():
+            masks = masks.cuda()
+                        
+        
             
         # TODO: Check that mask is initialized to 0 each time.
-        mask = Variable(self.zero.repeat(len(nodes), len(unique_neighbors)), requires_grad=False)
-        masks = collections.defaultdict(lambda: mask.clone())
+        #mask = Variable(self.zero.repeat(len(nodes), len(unique_neighbors)), requires_grad=False)
+        #masks = collections.defaultdict(lambda: mask.clone())
         #for relation in range(self.num_relations):
         #    masks[relation] = mask.clone()
         for i, (node, sampled_neighbors) in enumerate(zip(nodes, sampled_neighbors_per_node)):
             for neighbor in sampled_neighbors:
                 for relation in self.relational_adj_dict[node][neighbor]:
-                    masks[relation][i, unique_neighbors_to_index[neighbor]] = 1
-                    #column_indices_per_relation[relation].append(unique_neighbors_to_index[neighbor])
+                    masks[relation, i, unique_neighbors_to_index[neighbor]] = 1
+                    
+        for i in range(len(masks)):
+            # TODO: Do this for the whole tensor at once.
+            num_neighbors_per_node = masks[i].sum(1, keepdim=True)
+            masks[i] /= num_neighbors_per_node + 1e-10  # prevent zero division
                     
         #print([(k, v.sum()) for k, v in masks.items()])
         
-        #for node, sampled_neighbors in zip(nodes, sampled_neighbors_per_node):
-        #    for neighbor in sampled_neighbors:
-        #        for relation in self.relational_adj_dict[node][neighbor]:
-        #            column_indices_per_relation[relation].append(unique_neighbors_to_index[neighbor])
-              
-        # TODO: Integrate this in loop above.
-        #for i, node in enumerate(nodes):
-        #    for j, neighbor in enumerate(sampled_neighbors_per_node[i]):
-        #        for relation in self.relational_adj_dict[node][neighbor]:
-        #            row_indices_per_relation[relation].append(i)
-                    
-        # TODO: Maybe build all masks here and then do bmm with relation weights.
+        aggregated_embeddings_per_relation = masks.bmm(unique_neighbors_embeddings.expand(len(masks), -1, -1))
+        # TODO: Check if this works with mat.
+        # TODO: Speed up with addbmm.
+        output_embeddings += aggregated_embeddings_per_relation.bmm(self.relation_weights.transpose(1, 2)).sum(0)
         
-        #mask = Variable(torch.zeros(len(nodes), len(unique_neighbors)), requires_grad=False)
-        #if self.is_cuda():
-        #    mask = mask.cuda()
+        output_embeddings = self.activation(output_embeddings)
+        if self.verbose: print('Applied non-linearity, final output embeddings are:', output_embeddings)
+        if self.verbose: print('-'*80)
+        return output_embeddings
         
-        #masks = Variable(torch.zeros(len(column_indices_per_relation), len(nodes), len(unique_neighbors)), requires_grad=False)
-        
-            
-        
+             
+    def old_forward_loop(self):
         if self.verbose: print('Iterating over all relations and summing neighbor embeddings for each relation.')
 
         for relation, mask in masks.iteritems():
