@@ -40,6 +40,7 @@ class RankingEvaluation(object):
                 
                 
     def _get_rank(self, scoring_model, subject_embeddings, object_embeddings, relations, n, true_triples=None):
+        # TODO: torch.from_numpy(relations) is a dirty fix. Make everything with tensors instead.
         scores_gpu = scoring_model(subject_embeddings, object_embeddings, relations)
         scores = scores_gpu.cpu().data.numpy()
         #if n <= 20:
@@ -71,7 +72,7 @@ class RankingEvaluation(object):
         return rank
     
     
-    def __call__(self, embedding_model, scoring_model, verbose=False, show_progress=False):
+    def __call__(self, embedding_model, scoring_model, verbose=False, show_progress=False, batch_size=32):
         
         #print('Running rank evaluation for triples:')
         #print(self.triples[:5])
@@ -80,14 +81,21 @@ class RankingEvaluation(object):
         
         # TODO: Maybe refactor this by giving all_node_embeddings as an argument here. Then each model can compute the node embeddings itselves (or if it's a simple embedding model, just give the embedding matrix), and this class only does the scoring. Then, add a function get_embedding_matrix() to RGC-layer that yield a tensor with the complete embedding matrix.
         #all_node_embeddings = embedding_model(np.arange(self.num_nodes))
-        all_node_embeddings = utils.predict(embedding_model, np.arange(self.num_nodes), batch_size=32, to_tensor=True)
+        all_nodes = torch.arange(self.num_nodes).long()
+        if torch.cuda.is_available():
+            all_nodes = all_nodes.cuda()
+        #print(batch_size)
+        all_node_embeddings = utils.predict(embedding_model, all_nodes, batch_size=batch_size, to_tensor=True)
         ranks = []
 
         for i, triple in enumerate(tqdm_notebook(self.triples)) if show_progress else enumerate(self.triples):
 
             repeated_subject_embedding = all_node_embeddings[triple[0]].expand(self.num_nodes, -1)
             repeated_object_embedding = all_node_embeddings[triple[1]].expand(self.num_nodes, -1)
-            repeated_relation = np.repeat(triple[2], self.num_nodes)
+            # TODO: Handle cuda stuff better here.
+            repeated_relation = Variable(torch.from_numpy(triple[2][None]).expand(self.num_nodes))
+            if torch.cuda.is_available():
+                repeated_relation = repeated_relation.cuda()
 
             # TODO: Refactor this.
             rank_subject_corrupted = self._get_rank(scoring_model, all_node_embeddings, repeated_object_embedding, repeated_relation, triple[0], self.true_triples_subject_corrupted_per_triple[i] if self.filtered else None)

@@ -26,26 +26,26 @@ class BaseEmbeddingModel(nn.Module):
         
     def forward(self, triples):
         # TODO: Give triples as variables here in the first place.
-        subject_tensor = Variable(torch.LongTensor(triples[:, 0]), requires_grad=False)
-        if self.entity_embedding.weight.is_cuda:
-            subject_tensor = subject_tensor.cuda()
-        subject_embeddings = self.entity_embedding(subject_tensor)
+        #subject_tensor = Variable(torch.LongTensor(triples[:, 0]), requires_grad=False)
+        #if self.entity_embedding.weight.is_cuda:
+        #    subject_tensor = subject_tensor.cuda()
+        subject_embeddings = self.entity_embedding(triples[:, 0])
             
-        object_tensor = Variable(torch.LongTensor(triples[:, 1]), requires_grad=False)
-        if self.entity_embedding.weight.is_cuda:
-            object_tensor = object_tensor.cuda()
-        object_embeddings = self.entity_embedding(object_tensor)
+        #object_tensor = Variable(torch.LongTensor(triples[:, 1]), requires_grad=False)
+        #if self.entity_embedding.weight.is_cuda:
+        #    object_tensor = object_tensor.cuda()
+        object_embeddings = self.entity_embedding(triples[:, 1])
             
         return self.decoder(subject_embeddings, object_embeddings, triples[:, 2])
     
     # TODO: Dirty workaround for ranking evaluation. Handle triples/entities as tensors everywhere, 
     #       than net.get_embeddings can be substituted by net.entitiy_embedding in the ranking objects.
     def get_embeddings(self, entities):
-        entities_tensor = Variable(torch.LongTensor(entities), requires_grad=False)
-        if self.entity_embedding.weight.is_cuda:
-            entities_tensor = entities_tensor.cuda()
+        #entities_tensor = Variable(torch.LongTensor(entities), requires_grad=False)
+        #if self.entity_embedding.weight.is_cuda:
+        #    entities_tensor = entities_tensor.cuda()
             
-        return self.entity_embedding(entities_tensor)
+        return self.entity_embedding(entities)#_tensor)
     
     
 class DistMultDecoder(nn.Module):
@@ -58,20 +58,18 @@ class DistMultDecoder(nn.Module):
         
     def forward(self, subject_embeddings, object_embeddings, relations):
         # TODO: Give relations as tensor in the first place.
-        if type(relations) == torch.LongTensor or type(relations) == torch.cuda.LongTensor:
-            relations_tensor = relations
-        else:
-            relations_tensor = Variable(torch.LongTensor(relations), requires_grad=False)
-            if self.relation_embedding.weight.is_cuda:
-                relations_tensor = relations_tensor.cuda()
+        #if type(relations) == torch.LongTensor or type(relations) == torch.cuda.LongTensor:
+        #    relations_tensor = relations
+        #else:
+        #    relations_tensor = Variable(torch.LongTensor(relations), requires_grad=False)
+        #    if self.relation_embedding.weight.is_cuda:
+        #        relations_tensor = relations_tensor.cuda()
             
         subject_embeddings = self.dropout(subject_embeddings)
         object_embeddings = self.dropout(object_embeddings)
             
-        relation_embeddings = self.relation_embedding(relations_tensor)
+        relation_embeddings = self.relation_embedding(relations)#_tensor)
         scores = (subject_embeddings * relation_embeddings * object_embeddings).sum(1, keepdim=True)
-        
-        del subject_embeddings, object_embeddings, relation_embeddings
         
         return scores
     
@@ -95,17 +93,15 @@ class TransEDecoder(nn.Module):
         
     def forward(self, subject_embeddings, object_embeddings, relations):
         # TODO: Give relations as tensor in the first place.
-        relations_tensor = Variable(torch.LongTensor(relations), requires_grad=False)
-        if self.relation_embedding.weight.is_cuda:
-            relations_tensor = relations_tensor.cuda()
+        #relations_tensor = Variable(torch.LongTensor(relations), requires_grad=False)
+        #if self.relation_embedding.weight.is_cuda:
+        #    relations_tensor = relations_tensor.cuda()
             
         subject_embeddings = self.dropout(subject_embeddings)
         object_embeddings = self.dropout(object_embeddings)
             
-        relation_embeddings = self.relation_embedding(relations_tensor)
+        relation_embeddings = self.relation_embedding(relations)#_tensor)
         scores = self.dissimilarity(subject_embeddings + relation_embeddings, object_embeddings)
-        
-        del subject_embeddings, object_embeddings, relation_embeddings
         
         return scores
     
@@ -119,9 +115,9 @@ class TransE(BaseEmbeddingModel):
         
 class UnsupervisedRGCN(nn.Module):
 
-    # TODO: Add Dropout.
     def __init__(self, num_nodes, num_relations, relational_adj_dict, node_features=None, embedding_size=128, 
-                 dist_mult_dropout=0, num_sample_train=10, num_sample_eval=None, activation=F.relu, regularization=None):
+                 dist_mult_dropout=0, **kwargs):
+        # **kwargs are passed on to RelationalGraphConvolution layers.
         nn.Module.__init__(self)
         
         if node_features is not None:
@@ -138,7 +134,7 @@ class UnsupervisedRGCN(nn.Module):
             node_features_embedding = OneHotEmbedding(num_nodes, cuda=True)
             print('Initialized with OneHotEmbedding')
             
-        if regularization == 'block':
+        if 'regularization' in kwargs and kwargs['regularization'] == 'block':
             # Stack one more linear layer between node features and R-GCN, like in original paper.
             # TODO: Use bias here or not?
             self.additional_layer = nn.Linear(node_features_size, embedding_size)
@@ -146,15 +142,15 @@ class UnsupervisedRGCN(nn.Module):
             
             self.graph_conv1 = RelationalGraphConvolution(embedding_size, embedding_size, num_nodes, num_relations, 
                                                           node_features_embedding_and_additional_layer, relational_adj_dict, 
-                                                          num_sample_train, num_sample_eval, activation, regularization)
+                                                          **kwargs)
         else:
             self.graph_conv1 = RelationalGraphConvolution(node_features_size, embedding_size, num_nodes, num_relations, 
                                                           node_features_embedding, relational_adj_dict, 
-                                                          num_sample_train, num_sample_eval, activation, regularization)
+                                                          **kwargs)
         self.graph_conv1.name='conv1'
         self.graph_conv2 = RelationalGraphConvolution(embedding_size, embedding_size, num_nodes, num_relations, 
                                                       self.graph_conv1, relational_adj_dict, 
-                                                      num_sample_train, num_sample_eval, activation, regularization)
+                                                      **kwargs)
         self.graph_conv2.name='conv2'
         # TODO: Rename to decoder to make it more general.
         self.dist_mult = DistMultDecoder(embedding_size, num_relations, dist_mult_dropout)

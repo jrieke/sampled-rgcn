@@ -196,37 +196,20 @@ class RelationalGraphConvolution(GraphConvolution):
             return (self.coefficients[relation].view(-1, 1, 1) * self.basis_weights).sum(0)
         elif self.regularization == 'block':
             return block_diagonal(self.blocks_per_relation[relation])
-            
-            
-    def forward(self, nodes):
-        # TODO: Refactor this by passing nodes as tensor in the first place.
-        if type(nodes) == torch.LongTensor or type(nodes) == torch.cuda.LongTensor:
-            nodes_tensor = nodes
-        else:
-            nodes_tensor = torch.LongTensor(nodes)
-            if self.is_cuda():
-                nodes_tensor = nodes_tensor.cuda()
-                
-        if self.verbose: print('Calculating embeddings for nodes:', nodes)
-                
-        # Step 1: Get embeddings for all nodes in the mini-batch from the underlying layer.
-        #         (e.g. another GraphConvolution layer or a fixed feature matrix).
-        input_embeddings = self.in_features_func(nodes_tensor)
-        if self.verbose: print('Got input_embeddings:', input_embeddings)
         
-        # TODO: Maybe add hyperparameter that determines which fraction of the self-embedding to use, 
-        #       and which fraction of the aggregated embedding. See if this has an effect 
-        #       or if weights find the best way to combine the two embeddings themselves.
-        #       Alternatively, include self-embedding in sampling.
-        output_embeddings = input_embeddings.mm(self.weight.t())  # terms for relations will be added to this
-        if self.verbose: print('Multiplying them by weight matrix, preliminary output_embeddings are:', output_embeddings)
-                
-                
-        # Step 2: For each node, sample some neighbors that we aggregate information from. 
-        # TODO: Refactor this to method sample_neighbors(nodes), which uses self.num_sample and self.relational_adj_dict.
-        num_sample = self.num_sample_train if self.training else self.num_sample_eval
+    def get_relation_weights(self, relations):
+        if self.regularization is None:
+            return self.relation_weights[relations]
+        else:
+            # TODO: Or could I calculate this once above and reuse it?
+            #print(relation)
+            # TODO: Make this quicker.
+            return torch.cat([self.get_relation_weight(relation) for relation in relations])
+        
+        
+    def sample_neighbors(self, nodes):
         sampled_neighbors_per_node = self.adj_array[nodes]
-        #print(self.name, num_sample)
+        num_sample = self.num_sample_train if self.training else self.num_sample_eval
         if num_sample is not None:
             # TODO: Check if local pointers bring speed improvements (see GraphSage code).
             for i in range(len(sampled_neighbors_per_node)):
@@ -234,7 +217,29 @@ class RelationalGraphConvolution(GraphConvolution):
                     # TODO: Check if np.random.choice is faster.
                     sampled_neighbors_per_node[i] = set(random.sample(sampled_neighbors_per_node[i], num_sample))
                     
-        #print(self.name, sampled_neighbors_per_node[13])
+        if self.verbose: print('Sampled', num_sample, 'neighbors per node:', sampled_neighbors_per_node) 
+        return sampled_neighbors_per_node
+                    
+            
+    def forward(self, nodes):
+                
+        if self.verbose: print('Calculating embeddings for nodes:', nodes)
+                
+        # Step 1: Get embeddings for all nodes in the mini-batch from the underlying layer.
+        #         (e.g. another GraphConvolution layer or a fixed feature matrix).
+        input_embeddings = self.in_features_func(nodes)
+        if self.verbose: print('Got input_embeddings:', input_embeddings)
+        
+        # TODO: Maybe add hyperparameter that determines which fraction of the self-embedding to use, 
+        #       and which fraction of the aggregated embedding. See if this has an effect 
+        #       or if weights find the best way to combine the two embeddings themselves.
+        #       Alternatively, include self-embedding in sampling.
+        # TODO: Maybe add dropout of the self-connection.
+        output_embeddings = input_embeddings.mm(self.weight.t())  # terms for relations will be added to this
+        if self.verbose: print('Multiplying them by weight matrix, preliminary output_embeddings are:', output_embeddings)
+                
+        # Step 2: For each node, sample some neighbors that we aggregate information from. 
+        sampled_neighbors_per_node = self.sample_neighbors(nodes)
         
         # TODO: Do all of this in pytorch. 
         #       Store a dict of tensors triples_per_node. Then use 
@@ -243,28 +248,25 @@ class RelationalGraphConvolution(GraphConvolution):
         
             
         # Step 3: Find the unique neighbors in all sampled neighbors. 
-        #         If there are no unique neighbors, return zero embeddings.e
+        #         If there are no unique neighbors, return zero embeddings.
         unique_neighbors = list(set.union(*sampled_neighbors_per_node))
         unique_neighbors_to_index = {neighbor: i for i, neighbor in enumerate(unique_neighbors)}
-        if self.verbose: print('Sampled', num_sample, 'neighbors per node. Unique neighbors are:', unique_neighbors)
+        if self.verbose: print('Unique neighbors are:', unique_neighbors)
         
         if not unique_neighbors:
             # TODO: Maybe create and store this once, and return it each time here.
-            zeros = Variable(self.zero.repeat(len(nodes), self.out_features), requires_grad=False)
-            #if self.is_cuda():
-            #    zeros = zeros.cuda()
-            if self.verbose: print('No unique neighbors found, returning 0:', zeros)
-            return zeros
+            if self.verbose: print('No unique neighbors found, returning 0.')
+            return Variable(self.zero.repeat(len(nodes), self.out_features))
         
         # Step 3: Get embeddings for these unique neighbors from the underlying layer 
         #         (e.g. another GraphConvolution layer or a fixed feature matrix).
         # TODO: Investigate how much time processing only the unique neighbors actually saves vs the overhead 
         #       done here to reassign unique neighbors to the nodes (for a realistic batch size!).
-        unique_neighbors_tensor = torch.LongTensor(unique_neighbors)
+        unique_neighbors = torch.LongTensor(unique_neighbors)
         if self.is_cuda():
-            unique_neighbors_tensor = unique_neighbors_tensor.cuda()
+            unique_neighbors = unique_neighbors.cuda()
             
-        unique_neighbors_embeddings = self.in_features_func(unique_neighbors_tensor)
+        unique_neighbors_embeddings = self.in_features_func(unique_neighbors)
         if self.verbose: print('Got input embeddings for unique neighbors:', unique_neighbors_embeddings)
             
         #print(np.sum([len(neighbors) for neighbors in sampled_neighbors_per_node]) / len(unique_neighbors_embeddings) )
@@ -278,6 +280,7 @@ class RelationalGraphConvolution(GraphConvolution):
         #column_indices_per_relation = collections.defaultdict(list)
         #row_indices_per_relation = collections.defaultdict(list)
         
+        # This is the solution with a 3D tensor using all relations at once.
         #masks = Variable(self.zero.repeat(self.num_relations, len(nodes), len(unique_neighbors)))
         #for i in range(len(masks)):
             # TODO: Do this for the whole tensor at once.
@@ -287,6 +290,8 @@ class RelationalGraphConvolution(GraphConvolution):
         # TODO: Check that mask is initialized to 0 each time.
         mask = Variable(self.zero.repeat(len(nodes), len(unique_neighbors)), requires_grad=False)
         masks = collections.defaultdict(lambda: mask.clone())
+        #for relation in range(self.num_relations):
+        #    masks[relation] = mask.clone()
         for i, (node, sampled_neighbors) in enumerate(zip(nodes, sampled_neighbors_per_node)):
             for neighbor in sampled_neighbors:
                 for relation in self.relational_adj_dict[node][neighbor]:
@@ -344,9 +349,9 @@ class RelationalGraphConvolution(GraphConvolution):
             #            if relation in self.relational_adj_dict[node][neighbor]:
             #                row_indices.append(i)
                             
-            if self.verbose: print('Found neighbors with this relation.')
-            if self.verbose: print('Column indices:', column_indices_per_relation[relation])
-            if self.verbose: print('Row indices:', row_indices_per_relation[relation])
+            if self.verbose: print('Mask:', mask)
+            #if self.verbose: print('Column indices:', column_indices_per_relation[relation])
+            #if self.verbose: print('Row indices:', row_indices_per_relation[relation])
 
             #mask.zero_()
             #mask[row_indices_per_relation[relation], column_indices_per_relation[relation]] = 1
@@ -368,25 +373,13 @@ class RelationalGraphConvolution(GraphConvolution):
             output_embeddings += aggregated_embeddings.mm(self.get_relation_weight(relation).t())
             if self.verbose: print('Multiplying them by relation weight matrix, preliminary output_embeddings are:', output_embeddings)
 
-            # TODO: This is probably not freed up, because both variables are still linked from output_embeddings. 
-            del aggregated_embeddings
-            #del mask
             mask = mask.clone()
             
-            output_embeddings = self.activation(output_embeddings)
-            if self.verbose: print('Applied non-linearity, final output embeddings are:', output_embeddings)
-            return output_embeddings
+        output_embeddings = self.activation(output_embeddings)
+        if self.verbose: print('Applied non-linearity, final output embeddings are:', output_embeddings)
+        if self.verbose: print('-'*80)
+        return output_embeddings
         
-        
-        def new_forward(self, nodes):
-            # TODO: Refactor this by passing nodes as tensor in the first place.
-            if type(nodes) == torch.LongTensor or type(nodes) == torch.cuda.LongTensor:
-                nodes_tensor = nodes
-            else:
-                nodes_tensor = torch.LongTensor(nodes)
-                if self.is_cuda():
-                    nodes_tensor = nodes_tensor.cuda()
-    
     
         
         
