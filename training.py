@@ -6,7 +6,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from torch.utils.data import TensorDataset, DataLoader
-from tqdm import tqdm_notebook
+from tqdm import tqdm
+#from tqdm import tqdm_notebook as tqdm
 
 import utils
 
@@ -69,10 +70,8 @@ def train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, tra
 
         train_dataset = TriplesDatasetRanking(train_triples, num_nodes)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        train_loader_tqdm = tqdm_notebook(train_loader)
+        train_loader_tqdm = tqdm(train_loader)
         batches_history = utils.History()
-        
-        train_loss = 0
 
         #running_metrics = collections.defaultdict(lambda: 0)
 
@@ -193,7 +192,7 @@ def train_via_classification(net, train_triples, val_triples, optimizer, num_nod
 
         train_dataset = TriplesDatasetClassification(train_triples, num_nodes, num_negatives)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        train_loader_tqdm = tqdm_notebook(train_loader)
+        train_loader_tqdm = tqdm(train_loader)
         batches_history = utils.History()
 
         #running_metrics = collections.defaultdict(lambda: 0)

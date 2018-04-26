@@ -11,7 +11,8 @@ import torch.optim as optim
 from torch.autograd import Variable
 
 import random
-from tqdm import tqdm_notebook
+from tqdm import tqdm
+#from tqdm import tqdm_notebbok as tqdm
     
     
 class RankingEvaluation(object):
@@ -20,13 +21,17 @@ class RankingEvaluation(object):
         self.triples = triples
         self.num_nodes = num_nodes
         self.filtered = (filter_triples is not None)
+
+        print('Instantiating ranking evaluation with', len(triples), 'triples.')
         
         if self.filtered:
+
+            print('Searching for corrupted triples that are actually true (these will be filtered later)...')
             
             self.true_triples_subject_corrupted_per_triple = []
             self.true_triples_object_corrupted_per_triple = []
             
-            for s, o, r in tqdm_notebook(self.triples) if show_progress else self.triples:
+            for s, o, r in tqdm(self.triples) if show_progress else self.triples:
                 # TODO: Rename this.
                 self.true_triples_subject_corrupted_per_triple.append(
                     filter_triples[np.logical_and(filter_triples[:, 1] == o, filter_triples[:, 2] == r)][:, 0])
@@ -37,7 +42,8 @@ class RankingEvaluation(object):
                 
             print('Subject-corrupted triples: Found on average', np.mean([len(arr) for arr in self.true_triples_subject_corrupted_per_triple]), 'triples that were actually true')
             print('Object-corrupted triples: Found on average', np.mean([len(arr) for arr in self.true_triples_object_corrupted_per_triple]), 'triples that were actually true')
-                
+
+        print()
                 
     def _get_rank(self, scoring_model, subject_embeddings, object_embeddings, relations, n, true_triples=None):
         # TODO: torch.from_numpy(relations) is a dirty fix. Make everything with tensors instead.
@@ -88,7 +94,7 @@ class RankingEvaluation(object):
         all_node_embeddings = utils.predict(embedding_model, all_nodes, batch_size=batch_size, to_tensor=True)
         ranks = []
 
-        for i, triple in enumerate(tqdm_notebook(self.triples)) if show_progress else enumerate(self.triples):
+        for i, triple in enumerate(tqdm(self.triples)) if show_progress else enumerate(self.triples):
 
             repeated_subject_embedding = all_node_embeddings[triple[0]].expand(self.num_nodes, -1)
             repeated_object_embedding = all_node_embeddings[triple[1]].expand(self.num_nodes, -1)
