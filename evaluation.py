@@ -17,12 +17,13 @@ from tqdm import tqdm
     
 class RankingEvaluation(object):
     
-    def __init__(self, triples, num_nodes, filter_triples=None, show_progress=False):
+    def __init__(self, triples, num_nodes, filter_triples=None, device='cuda', show_progress=False):
         self.triples = triples
         self.num_nodes = num_nodes
         self.filtered = (filter_triples is not None)
+        self.device = device
 
-        print('Instantiating ranking evaluation with', len(triples), 'triples.')
+        print('Creating ranking evaluation with', len(triples), 'triples and', num_nodes, 'nodes in', 'filtered' if self.filtered else 'raw', 'setting')
         
         if self.filtered:
 
@@ -42,16 +43,12 @@ class RankingEvaluation(object):
                 
             print('Subject-corrupted triples: Found on average', np.mean([len(arr) for arr in self.true_triples_subject_corrupted_per_triple]), 'triples that were actually true')
             print('Object-corrupted triples: Found on average', np.mean([len(arr) for arr in self.true_triples_object_corrupted_per_triple]), 'triples that were actually true')
-
-        print()
+            print()
                 
-    def _get_rank(self, scoring_model, subject_embeddings, object_embeddings, relations, n, true_triples=None):
-        # TODO: torch.from_numpy(relations) is a dirty fix. Make everything with tensors instead.
-        scores_gpu = scoring_model(subject_embeddings, object_embeddings, relations)
-        scores = scores_gpu.cpu().data.numpy()
-        #if n <= 20:
-        #    print(scores[n], scores[:50])
-        del scores_gpu  # TODO: Check if this improves GPU memory.
+    def _get_rank(self, net, subject_embeddings, object_embeddings, relations, n, true_triples=None):
+        with torch.no_grad():
+            scores = net.decoder(subject_embeddings, object_embeddings, relations).data.cpu().numpy()
+        torch.cuda.empty_cache()
         #scores = utils.predict(scoring_model, [subject_embeddings, object_embeddings, relations], batch_size=16, move_to_cuda=True, move_to_cpu=True)
         score_true_triple = scores[n]
         
@@ -78,20 +75,17 @@ class RankingEvaluation(object):
         return rank
     
     
-    def __call__(self, embedding_model, scoring_model, verbose=False, show_progress=False, batch_size=32):
+    def __call__(self, net, verbose=False, show_progress=False, batch_size=32):
         
-        #print('Running rank evaluation for triples:')
-        #print(self.triples[:5])
-        #print('...')
-        #print(self.triples[-5:])
+        print('Running ranking evaluation for', len(self.triples), 'triples and', self.num_nodes, 'nodes with batch_size', batch_size, 'in', 'filtered' if self.filtered else 'raw', 'setting')
         
-        # TODO: Maybe refactor this by giving all_node_embeddings as an argument here. Then each model can compute the node embeddings itselves (or if it's a simple embedding model, just give the embedding matrix), and this class only does the scoring. Then, add a function get_embedding_matrix() to RGC-layer that yield a tensor with the complete embedding matrix.
+        # TODO: Maybe refactor this by giving all_node_embeddings as an argument here. Then each model can compute the node embeddings itself (or if it's a simple embedding model, just give the embedding matrix), and this class only does the scoring. Then, add a function get_embedding_matrix() to RGC-layer that yield a tensor with the complete embedding matrix.
         #all_node_embeddings = embedding_model(np.arange(self.num_nodes))
-        all_nodes = torch.arange(self.num_nodes).long()
-        if torch.cuda.is_available():
-            all_nodes = all_nodes.cuda()
-        #print(batch_size)
-        all_node_embeddings = utils.predict(embedding_model, all_nodes, batch_size=batch_size, to_tensor=True)
+        with torch.no_grad():
+            all_nodes = torch.arange(self.num_nodes, dtype=torch.long, device=self.device)
+            #all_node_embeddings = net.encoder(all_nodes).data#utils.predict(embedding_model, all_nodes, batch_size=batch_size, to_tensor=True)
+            all_node_embeddings = utils.predict(net.encoder, all_nodes, batch_size=batch_size, to_tensor=True)
+        torch.cuda.empty_cache()
         ranks = []
 
         for i, triple in enumerate(tqdm(self.triples)) if show_progress else enumerate(self.triples):
@@ -99,15 +93,13 @@ class RankingEvaluation(object):
             repeated_subject_embedding = all_node_embeddings[triple[0]].expand(self.num_nodes, -1)
             repeated_object_embedding = all_node_embeddings[triple[1]].expand(self.num_nodes, -1)
             # TODO: Handle cuda stuff better here.
-            repeated_relation = Variable(torch.from_numpy(triple[2][None]).expand(self.num_nodes))
-            if torch.cuda.is_available():
-                repeated_relation = repeated_relation.cuda()
+            repeated_relation = torch.tensor(triple[2][None], dtype=torch.long, device=self.device).expand(self.num_nodes)
 
             # TODO: Refactor this.
-            rank_subject_corrupted = self._get_rank(scoring_model, all_node_embeddings, repeated_object_embedding, repeated_relation, triple[0], self.true_triples_subject_corrupted_per_triple[i] if self.filtered else None)
+            rank_subject_corrupted = self._get_rank(net, all_node_embeddings, repeated_object_embedding, repeated_relation, triple[0], self.true_triples_subject_corrupted_per_triple[i] if self.filtered else None)
             ranks.append(rank_subject_corrupted)
             
-            rank_object_corrupted = self._get_rank(scoring_model, repeated_subject_embedding, all_node_embeddings, repeated_relation, triple[1], self.true_triples_object_corrupted_per_triple[i] if self.filtered else None)
+            rank_object_corrupted = self._get_rank(net, repeated_subject_embedding, all_node_embeddings, repeated_relation, triple[1], self.true_triples_object_corrupted_per_triple[i] if self.filtered else None)
             ranks.append(rank_object_corrupted)
             
             # TODO: Check if these are more or less the same.

@@ -30,6 +30,7 @@ class SimplifiedMarginRankingLoss(nn.MarginRankingLoss):
     """Same as torch.nn.MarginRankingLoss, but input1 is always higher than input2."""
     
     def __call__(self, input1, input2):
+        # TODO: Refactor to pytorch v0.4.
         target = Variable(torch.ones(input1.shape), requires_grad=False)
         if input1.is_cuda:
             target = target.cuda()
@@ -54,7 +55,7 @@ class TriplesDatasetRanking(TensorDataset):
         
     
     
-def train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, train_ranker, val_ranker, embedding_func, scoring_func, num_epochs, batch_size, batch_size_val, margin, history=None, save_best_to=None, dry_run=False):
+def train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, train_ranker, val_ranker, num_epochs, batch_size, batch_size_val, margin, device, history=None, save_best_to=None, dry_run=False):
     
     if history is None:
         history = utils.History()
@@ -66,8 +67,8 @@ def train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, tra
     
     for epoch in range(num_epochs):
         print('Epoch {}/{}'.format(epoch+1, num_epochs))
-        net.train()
 
+        net.train()
         train_dataset = TriplesDatasetRanking(train_triples, num_nodes)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         train_loader_tqdm = tqdm(train_loader)
@@ -78,9 +79,8 @@ def train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, tra
         for batch, (batch_triples, batch_negative_triples) in enumerate(train_loader_tqdm):
 
             # TODO: Maybe do force_cpu or cuda as parameter here.
-            if torch.cuda.is_available():# and not force_cpu:
-                batch_triples = batch_triples.cuda()
-                batch_negative_triples = batch_negative_triples.cuda()
+            batch_triples = batch_triples.to(device)
+            batch_negative_triples = batch_negative_triples.to(device)
 
             optimizer.zero_grad()
             output = net(batch_triples)
@@ -90,10 +90,10 @@ def train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, tra
             optimizer.step()
 
             # TODO: Especially getting the loss takes quite some time (as much as a single prediction for dist mult), maybe replace it by a running metric directly in torch.
-            batches_history.log_metric('loss', loss.data[0])
-            batches_history.log_metric('acc', (output > output_negative).float().mean().data[0])
-            batches_history.log_metric('mean_diff', (output - output_negative).mean().data[0])
-            batches_history.log_metric('median_diff', (output - output_negative).median().data[0])
+            batches_history.log_metric('loss', loss.item())
+            batches_history.log_metric('acc', (output > output_negative).float().mean().item())
+            batches_history.log_metric('mean_diff', (output - output_negative).mean().item())
+            batches_history.log_metric('median_diff', (output - output_negative).median().item())
 
             if batch % 10 == 0:
                 train_loader_tqdm.set_postfix(batches_history.latest())
@@ -106,32 +106,29 @@ def train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, tra
 
         
         net.eval()
-        
-        val_dataset = TriplesDatasetRanking(val_triples, num_nodes)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size_val, shuffle=False)
-        val_batches_history = utils.History()
-        
-        
-        for batch, (batch_triples, batch_negative_triples) in enumerate(val_loader):
-            
-            # TODO: Does it actually make sense to move these to CUDA? They are just used as indices.
-            if torch.cuda.is_available():# and not force_cpu:
-                # TODO: Set to volatile.
-                batch_triples = batch_triples.cuda()
-                batch_negative_triples = batch_negative_triples.cuda()
+        with torch.no_grad():
+            val_dataset = TriplesDatasetRanking(val_triples, num_nodes)
+            val_loader = DataLoader(val_dataset, batch_size=batch_size_val, shuffle=False)
+            val_batches_history = utils.History()
 
-            output = net(batch_triples)
-            output_negative = net(batch_negative_triples)
-            loss = loss_function(output, output_negative)
 
-            # TODO: Especially getting the loss takes quite some time (as much as a single prediction for dist mult), maybe replace it by a running metric directly in torch.
-            val_batches_history.log_metric('loss', loss.data[0])
-            val_batches_history.log_metric('acc', (output > output_negative).float().mean().data[0])
-            val_batches_history.log_metric('mean_diff', (output - output_negative).mean().data[0])
-            val_batches_history.log_metric('median_diff', (output - output_negative).median().data[0])
-            
-        del batch_triples, batch_negative_triples, output, output_negative, loss
-        torch.cuda.empty_cache()
+            for batch, (batch_triples, batch_negative_triples) in enumerate(val_loader):
+
+                # TODO: Does it actually make sense to move these to CUDA? They are just used as indices.
+                batch_triples = batch_triples.to(device)
+                batch_negative_triples = batch_negative_triples.to(device)
+                output = net(batch_triples)
+                output_negative = net(batch_negative_triples)
+                loss = loss_function(output, output_negative)
+
+                # TODO: Especially getting the loss takes quite some time (as much as a single prediction for dist mult), maybe replace it by a running metric directly in torch.
+                val_batches_history.log_metric('loss', loss.item())
+                val_batches_history.log_metric('acc', (output > output_negative).float().mean().item())
+                val_batches_history.log_metric('mean_diff', (output - output_negative).mean().item())
+                val_batches_history.log_metric('median_diff', (output - output_negative).median().item())
+
+            del batch_triples, batch_negative_triples, output, output_negative, loss
+            torch.cuda.empty_cache()
 
         #for key in running_metrics:
         #    running_metrics[key] /= len(batches)
@@ -146,14 +143,8 @@ def train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, tra
         history.log_metric('median_diff', batches_history.mean('median_diff'), 
                            val_batches_history.mean('median_diff'), 'Median Difference', print_=True)
 
-
-
-        print('Running rank evaluation for train in {} setting...'.format('filtered' if train_ranker.filtered else 'raw'))
-        mean_rank, mean_rec_rank, hits_1, hits_3, hits_10 = train_ranker(embedding_func, scoring_func, 
-                                                                         batch_size=batch_size_val)
-        print('Running rank evaluation for val in {} setting...'.format('filtered' if val_ranker.filtered else 'raw'))
-        val_mean_rank, val_mean_rec_rank, val_hits_1, val_hits_3, val_hits_10 = val_ranker(embedding_func, scoring_func, 
-                                                                                           batch_size=batch_size_val)
+        mean_rank, mean_rec_rank, hits_1, hits_3, hits_10 = train_ranker(net, batch_size=batch_size_val)
+        val_mean_rank, val_mean_rec_rank, val_hits_1, val_hits_3, val_hits_10 = val_ranker(net, batch_size=batch_size_val)
 
         history.log_metric('mean_rank', mean_rank, val_mean_rank, 'Mean Rank', print_=True)
         history.log_metric('mean_rec_rank', mean_rec_rank, val_mean_rec_rank, 'Mean Rec Rank', print_=True)

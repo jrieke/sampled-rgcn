@@ -73,7 +73,7 @@ def plot_matrix(m):
     
 def shuffle_together(arrays, seed=None):
     """Shuffle multiple arrays together so values at the same index stay at the same index."""
-    arrays = [np.asanyarray(arr) for arr in arrays]
+    #arrays = [np.asanyarray(arr) for arr in arrays]
     
     if seed is not None:
         np.random.seed(seed)
@@ -98,7 +98,7 @@ def split_into_batches(*arrays, **kwargs):
     batch_size = kwargs.get('batch_size', 128)
     shuffle = kwargs.get('shuffle', False)
     seed = kwargs.get('seed', None)
-    arrays = [np.asanyarray(arr) for arr in arrays]
+    #arrays = [np.asanyarray(arr) for arr in arrays]
     
     if shuffle:
         arrays = shuffle_together(arrays, seed=seed)
@@ -110,6 +110,10 @@ def split_into_batches(*arrays, **kwargs):
         return [arrays[0][batch_indices] for batch_indices in batch_indices_list]
     else:
         return [[arr[batch_indices] for arr in arrays] for batch_indices in batch_indices_list]
+
+
+#def predict_loader(net, loader, show_progress=False, ):
+
     
 
 def predict(net, *arrays, **kwargs):

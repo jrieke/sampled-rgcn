@@ -148,7 +148,7 @@ class GraphConvolution(nn.Module):
 
 class AbstractRelationalGraphConvolution(GraphConvolution):
     def __init__(self, size_in, size_out, num_nodes, num_relations, in_features_func, relational_adj_dict,
-                 num_sample_train=10, num_sample_eval=None, activation=F.relu, verbose=False, cuda=True):
+                 num_sample_train=10, num_sample_eval=None, activation=F.relu, verbose=False, device='cuda'):
 
         # TODO: Maybe remove inheritance from GraphConvolution.
         GraphConvolution.__init__(self, size_in, size_out, num_nodes, in_features_func, None,
@@ -159,10 +159,8 @@ class AbstractRelationalGraphConvolution(GraphConvolution):
         self.adj_array = np.array([set(relational_adj_dict[i].keys()) for i in range(num_nodes)], dtype=object)
         self.num_relations = num_relations
         self.verbose = verbose
-        self.zero = torch.zeros(1)
+        self.zero = torch.zeros(1).to(device)
         # TODO: Figure out a way to move zero to cuda as soon as cuda is called on the net.
-        if cuda:
-            self.zero = self.zero.cuda()
             
     def get_relation_weight(self, relation):
         raise NotImplementedError()
@@ -187,94 +185,6 @@ class AbstractRelationalGraphConvolution(GraphConvolution):
         return sampled_neighbors_per_node
 
 
-    def forward_indexing(self, nodes):
-
-        # Step 1: Get embeddings for all nodes in the mini-batch from the underlying layer.
-        #         (e.g. another GraphConvolution layer or a fixed feature matrix).
-        input_embeddings = self.in_features_func(nodes)
-        if self.verbose: print('Got input_embeddings:', input_embeddings)
-
-        # TODO: Maybe add hyperparameter that determines which fraction of the self-embedding to use,
-        #       and which fraction of the aggregated embedding. See if this has an effect
-        #       or if weights find the best way to combine the two embeddings themselves.
-        #       Alternatively, include self-embedding in sampling.
-        # TODO: Maybe add dropout of the self-connection.
-        output_embeddings = input_embeddings.mm(self.weight.t())  # terms for relations will be added to this
-        if self.verbose: print('Multiplying them by weight matrix, preliminary output_embeddings are:',
-                               output_embeddings)
-
-        # Step 2: For each node, sample some neighbors that we aggregate information from.
-        sampled_neighbors_per_node = self.sample_neighbors(nodes)
-
-        # TODO: Do all of this in pytorch.
-        #       Store a dict of tensors triples_per_node. Then use
-        #       torch.IntTensor(num_sample).random(len(triples_per_node[node])) to sample some triples.
-        #       Then use torch.unique() (only pytorch 0.4!) to find unique values from this matrix.
-
-        # Step 3: Find the unique neighbors in all sampled neighbors.
-        #         If there are no unique neighbors, return zero embeddings.
-        unique_neighbors = list(set.union(*sampled_neighbors_per_node))
-        unique_neighbors_to_index = {neighbor: i for i, neighbor in enumerate(unique_neighbors)}
-        if self.verbose: print('Unique neighbors are:', unique_neighbors)
-
-        if not unique_neighbors:
-            # TODO: Maybe create and store this once, and return it each time here.
-            if self.verbose: print('No unique neighbors found, returning 0.')
-            return Variable(self.zero.repeat(len(nodes), self.out_features))
-
-        # Step 3: Get embeddings for these unique neighbors from the underlying layer
-        #         (e.g. another GraphConvolution layer or a fixed feature matrix).
-        unique_neighbors = torch.LongTensor(unique_neighbors)
-        if self.is_cuda():
-            unique_neighbors = unique_neighbors.cuda()
-
-        unique_neighbors_embeddings = self.in_features_func(unique_neighbors)
-        if self.verbose: print('Got input embeddings for unique neighbors:', unique_neighbors_embeddings)
-
-        # print(np.sum([len(neighbors) for neighbors in sampled_neighbors_per_node]) / len(unique_neighbors_embeddings) )
-
-        # Step 4: For each relation, average the embeddings of sampled neighbors,
-        #         using the embeddings obtained above. The algorithm here uses a masking matrix
-        #         to find the neighbor embeddings for each node and add them in one step.
-
-
-        for sampled_neighbors in sampled_neighbors_per_node:
-            unique_neighbors_embeddings[[unique_neighbors_to_index[neighbor] for neighbor in sampled_neighbors]]
-
-        # This is the solution with a 3D tensor using all relations at once.
-        masks = Variable(self.zero.repeat(self.num_relations, len(nodes), len(unique_neighbors)))
-        # masks = masks.clone()
-        # masks = Variable(torch.zeros(self.num_relations, len(nodes), len(unique_neighbors)))
-        # if self.is_cuda():
-        #    masks = masks.cuda()
-
-        # TODO: Check that mask is initialized to 0 each time.
-        # mask = Variable(self.zero.repeat(len(nodes), len(unique_neighbors)), requires_grad=False)
-        # masks = collections.defaultdict(lambda: mask.clone())
-        # for relation in range(self.num_relations):
-        #    masks[relation] = mask.clone()
-        for i, (node, sampled_neighbors) in enumerate(zip(nodes, sampled_neighbors_per_node)):
-            for neighbor in sampled_neighbors:
-                for relation in self.relational_adj_dict[node][neighbor]:
-                    masks[relation, i, unique_neighbors_to_index[neighbor]] = 1
-
-        for i in range(len(masks)):
-            # TODO: Do this for the whole tensor at once.
-            num_neighbors_per_node = masks[i].sum(1, keepdim=True)
-            masks[i] /= num_neighbors_per_node + 1e-10  # prevent zero division
-
-        # print([(k, v.sum()) for k, v in masks.items()])
-
-        aggregated_embeddings_per_relation = masks.bmm(unique_neighbors_embeddings.expand(len(masks), -1, -1))
-        # TODO: Check if this works with mat.
-        # TODO: Speed up with addbmm.
-        output_embeddings += aggregated_embeddings_per_relation.bmm(self.relation_weights.transpose(1, 2)).sum(0)
-
-        output_embeddings = self.activation(output_embeddings)
-        if self.verbose: print('Applied non-linearity, final output embeddings are:', output_embeddings)
-        if self.verbose: print('-' * 80)
-        return output_embeddings
-                    
             
     def forward_bmm(self, nodes):
 
@@ -309,14 +219,11 @@ class AbstractRelationalGraphConvolution(GraphConvolution):
         if not unique_neighbors:
             # TODO: Maybe create and store this once, and return it each time here.
             if self.verbose: print('No unique neighbors found, returning 0.')
-            return Variable(self.zero.repeat(len(nodes), self.out_features))
+            return self.zero.repeat(len(nodes), self.out_features)
         
         # Step 3: Get embeddings for these unique neighbors from the underlying layer 
         #         (e.g. another GraphConvolution layer or a fixed feature matrix).
-        unique_neighbors = torch.LongTensor(unique_neighbors)
-        if self.is_cuda():
-            unique_neighbors = unique_neighbors.cuda()
-            
+        unique_neighbors = nodes.new_tensor(unique_neighbors)
         unique_neighbors_embeddings = self.in_features_func(unique_neighbors)
         if self.verbose: print('Got input embeddings for unique neighbors:', unique_neighbors_embeddings)
             
@@ -328,7 +235,7 @@ class AbstractRelationalGraphConvolution(GraphConvolution):
         
         
         # This is the solution with a 3D tensor using all relations at once.
-        masks = Variable(self.zero.repeat(self.num_relations, len(nodes), len(unique_neighbors)))
+        masks = self.zero.repeat(self.num_relations, len(nodes), len(unique_neighbors))
         #masks = masks.clone()
         #masks = Variable(torch.zeros(self.num_relations, len(nodes), len(unique_neighbors)))
         #if self.is_cuda():
@@ -392,14 +299,11 @@ class AbstractRelationalGraphConvolution(GraphConvolution):
         if not unique_neighbors:
             # TODO: Maybe create and store this once, and return it each time here.
             if self.verbose: print('No unique neighbors found, returning 0.')
-            return Variable(self.zero.repeat(len(nodes), self.out_features))
+            return self.zero.repeat(len(nodes), self.out_features)
 
         # Step 3: Get embeddings for these unique neighbors from the underlying layer
         #         (e.g. another GraphConvolution layer or a fixed feature matrix).
-        unique_neighbors = torch.LongTensor(unique_neighbors)
-        if self.is_cuda():
-            unique_neighbors = unique_neighbors.cuda()
-
+        unique_neighbors = nodes.new_tensor(unique_neighbors)
         unique_neighbors_embeddings = self.in_features_func(unique_neighbors)
         if self.verbose: print('Got input embeddings for unique neighbors:', unique_neighbors_embeddings)
 
@@ -407,7 +311,7 @@ class AbstractRelationalGraphConvolution(GraphConvolution):
         # Step 4: For each relation, average the embeddings of sampled neighbors,
         #         using the embeddings obtained above. The algorithm here uses a masking matrix
         #         to find the neighbor embeddings for each node and add them in one step.
-        mask = Variable(self.zero.repeat(len(nodes), len(unique_neighbors)))
+        mask = self.zero.repeat(len(nodes), len(unique_neighbors))
         masks = collections.defaultdict(mask.clone)
 
         for i, (node, sampled_neighbors) in enumerate(zip(nodes, sampled_neighbors_per_node)):
@@ -472,7 +376,7 @@ class RelationalGraphConvolution(AbstractRelationalGraphConvolution):
         #    nn.init.xavier_uniform(weight)
         #    self.relation_weights.append(weight)
         self.relation_weights = nn.Parameter(torch.FloatTensor(num_relations, size_out, size_in))
-        nn.init.xavier_uniform(self.relation_weights)
+        nn.init.xavier_uniform_(self.relation_weights)
 
     def get_relation_weight(self, relation):
         return self.relation_weights[relation]
@@ -494,9 +398,9 @@ class BasisRelationalGraphConvolution(AbstractRelationalGraphConvolution):
                                                     num_sample_train, num_sample_eval, activation, verbose, cuda)
 
         self.basis_weights = nn.Parameter(torch.FloatTensor(num_basis_weights, size_out, size_in))
-        nn.init.xavier_uniform(self.basis_weights)
+        nn.init.xavier_uniform_(self.basis_weights)
         self.coefficients = nn.Parameter(torch.FloatTensor(num_relations, num_basis_weights))
-        nn.init.xavier_uniform(self.coefficients)
+        nn.init.xavier_uniform_(self.coefficients)
 
     def get_relation_weight(self, relation):
         # TODO: Or could I calculate this once above and reuse it?
@@ -549,7 +453,7 @@ class BlockRelationalGraphConvolution(AbstractRelationalGraphConvolution):
 
 class AdditiveRelationalGraphConvolution(nn.Module):
     def __init__(self, size_in, size_out, num_nodes, num_relations, in_features_func, relational_adj_dict, train_triples,
-                 num_sample_train=10, num_sample_eval=None, activation=F.relu, verbose=False, cuda=True):
+                 num_sample_train=10, num_sample_eval=None, activation=F.relu, verbose=False):
         nn.Module.__init__(self)
 
         # TODO: Maybe create adj_dict from train_triples directly in here.
@@ -576,10 +480,10 @@ class AdditiveRelationalGraphConvolution(nn.Module):
 
         # TODO: Maybe refactor to layers.
         self.weight = nn.Parameter(torch.FloatTensor(size_out, size_in))
-        nn.init.xavier_uniform(self.weight)
+        nn.init.xavier_uniform_(self.weight)
 
-        self.relation_weight = nn.Parameter(torch.FloatTensor(num_relations, size_out))#nn.Embedding(num_relations, size_out)
-        nn.init.xavier_uniform(self.relation_weight)
+        self.relation_weight = nn.Parameter(torch.FloatTensor(size_out, num_relations+1))  # last row is for self-connections, will be accessed via -1
+        nn.init.xavier_uniform_(self.relation_weight)
 
     def sample_neighbors(self, nodes):
         num_sample = self.num_sample_train if self.training else self.num_sample_eval
@@ -594,7 +498,7 @@ class AdditiveRelationalGraphConvolution(nn.Module):
     def sample_neighbors_and_relations(self, nodes):
         num_sample = self.num_sample_train if self.training else self.num_sample_eval
 
-        # TODO: Maybe create torch tensor here directly.
+        # TODO: Maybe create torch tensor on cuda here directly. Check how this affects runtime.
         sampled_neighbors_per_node = np.zeros((len(nodes), num_sample), dtype=int)
         sampled_relations_per_node = np.zeros((len(nodes), num_sample), dtype=int)
 
@@ -607,29 +511,34 @@ class AdditiveRelationalGraphConvolution(nn.Module):
 
     def forward(self, nodes):
         sampled_neighbors_per_node, sampled_relations_per_node = self.sample_neighbors_and_relations(nodes)
-        neighbor_embeddings = self.in_features_func(sampled_neighbors_per_node.flatten()).view(sampled_neighbors_per_node.shape[0], sampled_neighbors_per_node.shape[1], -1)
-        aggregated_neighbor_embeddings = neighbor_embeddings.sum(1)
 
-        a = Variable(torch.from_numpy(sampled_relations_per_node.flatten()).long())
-        if self.weight.is_cuda:
-            a = a.cuda()
-        relation_embeddings = self.relation_weight.index_select(0, a).view(sampled_relations_per_node.shape[0], sampled_relations_per_node.shape[1], -1)
-        aggregated_relation_embeddings = relation_embeddings.sum(1)
+        # TODO: Investigate which effect the explicit self-embedding has.
+        #input_embeddings = self.in_features_func(nodes).mm(self.weight.t())
 
+        # TODO: Put this into a better structure.
+        if self.in_features_func is None:
+            neighbor_embeddings = self.weight[:, sampled_neighbors_per_node.flatten()]
+        else:
+            neighbor_embeddings = self.in_features_func(torch.from_numpy(sampled_neighbors_per_node.flatten()))
+        neighbor_embeddings = neighbor_embeddings.view(sampled_neighbors_per_node.shape[0], sampled_neighbors_per_node.shape[1], -1)
+        aggregated_neighbor_embeddings = neighbor_embeddings.mean(1)
+        if self.in_features_func is not None:
+            aggregated_neighbor_embeddings = aggregated_neighbor_embeddings.mm(self.weight.t())
 
-        output_embeddings = aggregated_neighbor_embeddings.mm(self.weight.t()) + aggregated_relation_embeddings
+        relation_embeddings = self.relation_weight[:, torch.from_numpy(sampled_relations_per_node.flatten())].view(sampled_relations_per_node.shape[0], sampled_relations_per_node.shape[1], -1)
+        aggregated_relation_embeddings = relation_embeddings.mean(1)
+
+        output_embeddings = aggregated_neighbor_embeddings + aggregated_relation_embeddings# + input_embeddings
         return self.activation(output_embeddings)
 
 
 class OneHotEmbedding(nn.Module):
     
-    def __init__(self, num_embeddings, cuda=False):
+    def __init__(self, num_embeddings, device='cuda'):
         nn.Module.__init__(self)
         self.num_embeddings = num_embeddings
-        self.row = torch.zeros(num_embeddings)
+        self.row = torch.zeros(num_embeddings).to(device)
         # TODO: Figure out a way to move row to cuda as soon as cuda is called on the net.
-        if cuda:
-            self.row = self.row.cuda()
         
     def forward(self, indices):
         self.row.zero_()
