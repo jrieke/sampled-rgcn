@@ -8,6 +8,7 @@ from torch.autograd import Variable
 from torch.utils.data import TensorDataset, DataLoader
 from tqdm import tqdm
 #from tqdm import tqdm_notebook as tqdm
+from tensorboardX import SummaryWriter
 
 import utils
 
@@ -56,7 +57,9 @@ class TriplesDatasetRanking(TensorDataset):
     
     
 def train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, train_ranker, val_ranker, num_epochs, batch_size, batch_size_val, margin, device, history=None, save_best_to=None, dry_run=False):
-    
+
+    writer = SummaryWriter()
+
     if history is None:
         history = utils.History()
     loss_function = SimplifiedMarginRankingLoss(margin)
@@ -136,6 +139,8 @@ def train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, tra
         # TODO: Maybe implement these metrics in a batched fashion.
         history.log_metric('loss', batches_history.mean('loss'), 
                            val_batches_history.mean('loss'), 'Loss', print_=True)
+        writer.add_scalar('test/loss', batches_history.mean('loss'), epoch)
+        writer.add_scalar('test/val_loss', val_batches_history.mean('loss'), epoch)
         history.log_metric('acc', batches_history.mean('acc'), 
                            val_batches_history.mean('acc'), 'Accuracy', print_=True)
         history.log_metric('mean_diff', batches_history.mean('mean_diff'), 

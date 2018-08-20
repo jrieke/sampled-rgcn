@@ -19,8 +19,10 @@ from training import train_via_ranking, train_via_classification
 from evaluation import RankingEvaluation
 from datasets import load_graph, get_adj_dict, get_relational_adj_dict, load_image_features
 
+print('blub')
+print('blab')
 
-root_dir = '../data/fb15k-237/Release'
+root_dir = 'data/fb15k-237/Release'
 #root_dir = '../data/wn18rr'
 #root_dir = '../data/yago3-10'
 
@@ -44,6 +46,7 @@ val_ranker = RankingEvaluation(val_triples, num_nodes, filter_triples=all_triple
 
 
 
+
 history = utils.History()
 
 #node_features = load_image_features(num_nodes, entity_map)
@@ -58,7 +61,7 @@ optimizer = torch.optim.Adam(filter(lambda parameter: parameter.requires_grad, n
 
 train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, train_ranker, val_ranker,
                   num_epochs=35, batch_size=64, batch_size_val=512,
-                  margin=1, device=device, history=history, dry_run=False)
+                  margin=1, device=device, history=history, dry_run=True)
 
 
 

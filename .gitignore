@@ -4,3 +4,4 @@ logs
 .DS_STORE
 *.pyc
 .idea
+Icon[^M]
