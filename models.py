@@ -2,11 +2,18 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from layers import RelationalGraphConvolution, BasisRelationalGraphConvolution, BlockRelationalGraphConvolution, OneHotEmbedding, AdditiveRelationalGraphConvolution
 
 
 class AbstractGraphAutoEncoder(nn.Module):
+    """
+    Abstract model for a graph autoencoder for link prediction in a relational graph.
+
+    Uses an encoder to turn nodes into feature vectors (e.g. R-GCN, embeddings)
+    and a decoder to turn a triple into a probability score (e.g. DistMult).
+    """
     def __init__(self, encoder, decoder, dropout=0):
         nn.Module.__init__(self)
         self.encoder = encoder
@@ -24,7 +31,7 @@ class DistMultDecoder(nn.Module):
     def __init__(self, embedding_size, num_relations):
         super(DistMultDecoder, self).__init__()
         self.relation_embedding = nn.Embedding(num_relations, embedding_size)
-        #nn.init.xavier_normal(self.relation_embedding.weight)
+        nn.init.xavier_normal_(self.relation_embedding.weight)
         
     def forward(self, subject_embeddings, object_embeddings, relations):
         relation_embeddings = self.relation_embedding(relations)
@@ -36,6 +43,7 @@ class DistMult(AbstractGraphAutoEncoder):
     
     def __init__(self, embedding_size, num_nodes, num_relations, dropout=0):
         entity_embedding = nn.Embedding(num_nodes, embedding_size)
+        nn.init.xavier_normal_(entity_embedding.weight)
         decoder = DistMultDecoder(embedding_size, num_relations)
         AbstractGraphAutoEncoder.__init__(self, entity_embedding, decoder, dropout)
         
@@ -119,4 +127,4 @@ class UnsupervisedRGCN(AbstractGraphAutoEncoder):
         # self.graph_conv2.name='conv2'
         #self.encoder = self.graph_conv1
         #self.dropout = nn.Dropout(dropout)
-        AbstractGraphAutoEncoder.__init__(self, graph_conv1, DistMultDecoder(embedding_size, num_relations), dropout)
+        super(UnsupervisedRGCN, self).__init__(graph_conv1, DistMultDecoder(embedding_size, num_relations), dropout)

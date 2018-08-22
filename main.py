@@ -14,13 +14,11 @@ import torch
 import torch.nn.functional as F
 
 
-from models import UnsupervisedRGCN
+from models import UnsupervisedRGCN, DistMult
 from training import train_via_ranking, train_via_classification
 from evaluation import RankingEvaluation
 from datasets import load_graph, get_adj_dict, get_relational_adj_dict, load_image_features
 
-print('blub')
-print('blab')
 
 root_dir = 'data/fb15k-237/Release'
 #root_dir = '../data/wn18rr'
@@ -33,7 +31,8 @@ relational_adj_dict = get_relational_adj_dict(train_triples)
 
 
 use_cuda = True
-device = torch.device('cuda' if torch.cuda.is_available() and use_cuda else 'cpu')
+device = torch.device('cuda' if use_cuda and torch.cuda.is_available() else 'cpu')
+print('Using device:', device)
 
 # Set up dataset splits and ranking evaluation.
 #train_triples, val_triples, test_triples = utils.train_val_test_split(all_triples, val_size=5000, test_size=5000, random_state=0)
@@ -46,22 +45,25 @@ val_ranker = RankingEvaluation(val_triples, num_nodes, filter_triples=all_triple
 
 
 
-
+# TODO: Maybe use tensorboard instead of history object.
 history = utils.History()
 
 #node_features = load_image_features(num_nodes, entity_map)
 node_features = None
 
-# Option 1: R-GCN
 utils.seed_all(0)
-net = UnsupervisedRGCN(num_nodes, num_relations, relational_adj_dict, train_triples, embedding_size=500, dropout=0.5,
-                       num_sample_train=10, num_sample_eval=10, activation=F.elu, regularization='basis',
-                       node_features=node_features, device=device).to(device)
+# TODO: Make device parameter obsolete by moving everything to the device once .to(device) is called.
+#net = UnsupervisedRGCN(num_nodes, num_relations, relational_adj_dict, train_triples, embedding_size=500, dropout=0.5,
+#                       num_sample_train=10, num_sample_eval=10, activation=F.elu,
+#                       node_features=node_features, device=device)
+net = DistMult(500, num_nodes, num_relations, 0)
+net.to(device)
 optimizer = torch.optim.Adam(filter(lambda parameter: parameter.requires_grad, net.parameters()), lr=0.001)
 
-train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, train_ranker, val_ranker,
-                  num_epochs=35, batch_size=64, batch_size_val=512,
-                  margin=1, device=device, history=history, dry_run=True)
+train_via_classification(net, train_triples, val_triples, optimizer, num_nodes, train_ranker, val_ranker,
+                  num_epochs=35, batch_size=64, batch_size_eval=512, device=device,
+                  history=history, dry_run=True, ranking_eval=True)
+
 
 
 

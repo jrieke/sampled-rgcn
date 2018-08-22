@@ -32,6 +32,8 @@ def block_diagonal(blocks):
     return out
 
 
+# TODO: Everything from here until AdditiveRelationalGraphConvolution is the (broken) old model. Replace it as soon as posible.
+
 class GraphConvolution(nn.Module):
     def __init__(self, in_features, out_features, num_nodes, in_features_func, adj_dict, 
                  num_sample_train=10, num_sample_eval=None, activation=F.relu):
@@ -451,6 +453,7 @@ class BlockRelationalGraphConvolution(AbstractRelationalGraphConvolution):
         return self.zero_weight
 
 
+# New model.
 class AdditiveRelationalGraphConvolution(nn.Module):
     def __init__(self, size_in, size_out, num_nodes, num_relations, in_features_func, relational_adj_dict, train_triples,
                  num_sample_train=10, num_sample_eval=None, activation=F.relu, verbose=False):
@@ -463,19 +466,17 @@ class AdditiveRelationalGraphConvolution(nn.Module):
         self.relational_adj_dict = relational_adj_dict
         self.adj_array = np.array([relational_adj_dict[i].keys() + [i] for i in range(num_nodes)], dtype=object)
 
-        self_triples = np.zeros((num_nodes, 3))
-        self_triples[:, 0] = np.arange(num_nodes)
-        self_triples[:, 1] = np.arange(num_nodes)
-        self_triples[:, 2] = -1
-        triples = np.concatenate([train_triples, self_triples])
+        # TODO: Implement self-connections as triples here or via sampling below?
+        self_connection_triples = np.zeros((num_nodes, 3))
+        self_connection_triples[:, 0] = np.arange(num_nodes)
+        self_connection_triples[:, 1] = np.arange(num_nodes)
+        self_connection_triples[:, 2] = -1
+        triples = np.concatenate([train_triples, self_connection_triples])
         self.triples_per_node = np.array([triples[triples[:, 0] == i] for i in range(num_nodes)], dtype=object)
 
         self.num_relations = num_relations
         self.verbose = verbose
-        # self.zero = torch.zeros(1)
-        # # TODO: Figure out a way to move zero to cuda as soon as cuda is called on the net.
-        # if cuda:
-        #     self.zero = self.zero.cuda()
+        # TODO: Rename this probably.
         self.in_features_func = in_features_func
 
         # TODO: Maybe refactor to layers.
@@ -523,6 +524,7 @@ class AdditiveRelationalGraphConvolution(nn.Module):
         neighbor_embeddings = neighbor_embeddings.view(sampled_neighbors_per_node.shape[0], sampled_neighbors_per_node.shape[1], -1)
         aggregated_neighbor_embeddings = neighbor_embeddings.mean(1)
         if self.in_features_func is not None:
+            # TODO: Maybe rename this, b/c this is the embeddings times the weight matrix.
             aggregated_neighbor_embeddings = aggregated_neighbor_embeddings.mm(self.weight.t())
 
         relation_embeddings = self.relation_weight[:, torch.from_numpy(sampled_relations_per_node.flatten())].view(sampled_relations_per_node.shape[0], sampled_relations_per_node.shape[1], -1)
@@ -547,6 +549,7 @@ class OneHotEmbedding(nn.Module):
         return Variable(embeddings)
 
 
+# TODO: Is this still used?
 class SparseMM(torch.autograd.Function):
     """
     Sparse x dense matrix multiplication with autograd support.

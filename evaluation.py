@@ -47,6 +47,7 @@ class RankingEvaluation(object):
                 
     def _get_rank(self, net, subject_embeddings, object_embeddings, relations, n, true_triples=None):
         with torch.no_grad():
+            # TODO: Change to .to('cpu')
             scores = net.decoder(subject_embeddings, object_embeddings, relations).data.cpu().numpy()
         torch.cuda.empty_cache()
         #scores = utils.predict(scoring_model, [subject_embeddings, object_embeddings, relations], batch_size=16, move_to_cuda=True, move_to_cpu=True)
@@ -84,7 +85,8 @@ class RankingEvaluation(object):
         with torch.no_grad():
             all_nodes = torch.arange(self.num_nodes, dtype=torch.long, device=self.device)
             #all_node_embeddings = net.encoder(all_nodes).data#utils.predict(embedding_model, all_nodes, batch_size=batch_size, to_tensor=True)
-            all_node_embeddings = utils.predict(net.encoder, all_nodes, batch_size=batch_size, to_tensor=True)
+            # TODO: Check if it is reasonable to do this via net.encoder(all_nodes), because I am not computing the gradient here, so it shouldn't consume too much memory.
+            all_node_embeddings = utils.predict(net.encoder, all_nodes, batch_size=batch_size, to_tensor=True)  # shape: num_nodes, embedding_size
         torch.cuda.empty_cache()
         ranks = []
 
