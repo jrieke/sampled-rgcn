@@ -59,29 +59,6 @@ class RankingEvaluation(object):
             print('Object-corrupted triples: Found on average', np.mean([len(arr) for arr in self.true_triples_object_corrupted_per_triple]), 'triples that were actually true')
             print()
 
-    def _get_rank_new(self, net, subject_embeddings, object_embeddings, relations, n, true_triples=None):
-        with torch.no_grad():
-            scores = net.decoder(subject_embeddings, object_embeddings, relations)
-            # TODO: If memory problems arise, do the line above via utils.predict, similar to:
-            # scores = utils.predict(scoring_model, [subject_embeddings, object_embeddings, relations], batch_size=16, move_to_cuda=True, move_to_cpu=True)
-            # TODO: Probably not required.
-            torch.cuda.empty_cache()
-            #score_true_triple = scores[n]
-
-            # Set score of true triple and any potential other true triples (in filtered setting) to 0.
-            # TODO: Maybe rename n to index_true_triple
-            #scores[n] = 0
-            if self.filtered:
-                # TODO: Maybe rename true_triples to indices_true_triples
-                # TODO: Check that this doesn't set the score of the true triple to 0.
-                scores[true_triples] = 0
-
-            # TODO: Check that dim 1 is correct here.
-            r = rank(scores, n, dim=0)
-            return r
-            #return rank(scores, n)
-
-
 
     def _get_rank(self, net, subject_embeddings, object_embeddings, relations, n, true_triples=None):
         with torch.no_grad():
