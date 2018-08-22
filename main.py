@@ -39,8 +39,8 @@ print('Using device:', device)
 
 
 filtered = False
-train_ranker = RankingEvaluation(train_triples[:5000], num_nodes, filter_triples=all_triples if filtered else None, device=device, show_progress=True)
-val_ranker = RankingEvaluation(val_triples, num_nodes, filter_triples=all_triples if filtered else None, device=device, show_progress=True)
+train_ranker = RankingEvaluation(train_triples[:5000], num_nodes, triples_to_filter=all_triples if filtered else None, device=device, show_progress=True)
+val_ranker = RankingEvaluation(val_triples, num_nodes, triples_to_filter=all_triples if filtered else None, device=device, show_progress=True)
 #test_ranker = RankingEvaluation(test_triples, num_nodes, filter_triples=all_triples if filtered else None, show_progress=True)
 
 

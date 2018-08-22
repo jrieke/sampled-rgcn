@@ -13,14 +13,28 @@ from torch.autograd import Variable
 import random
 from tqdm import tqdm
 #from tqdm import tqdm_notebbok as tqdm
-    
+
+
+def rank(tensor, n, dim=None):
+    """
+    PyTorch function similar to `scipy.stats.rankdata`.
+    Returns the rank of the element at index `n` within the `tensor`.
+
+    If the element at index `n` is the highest value in `tensor`, it has rank 1,
+    if it is the 2nd-highest value, it has rank 2, etc.
+
+    Note: This cannot handle equal values in `tensor` in the same way that `scipy.stats.rankdata` can.
+    """
+    _, sorted_indices = torch.sort(tensor, dim=dim, descending=True)
+    return (sorted_indices == n).nonzero()[0][0] + 1
+
     
 class RankingEvaluation(object):
     
-    def __init__(self, triples, num_nodes, filter_triples=None, device='cuda', show_progress=False):
+    def __init__(self, triples, num_nodes, triples_to_filter=None, device='cuda', show_progress=False):
         self.triples = triples
         self.num_nodes = num_nodes
-        self.filtered = (filter_triples is not None)
+        self.filtered = (triples_to_filter is not None)
         self.device = device
 
         print('Creating ranking evaluation with', len(triples), 'triples and', num_nodes, 'nodes in', 'filtered' if self.filtered else 'raw', 'setting')
@@ -35,44 +49,58 @@ class RankingEvaluation(object):
             for s, o, r in tqdm(self.triples) if show_progress else self.triples:
                 # TODO: Rename this.
                 self.true_triples_subject_corrupted_per_triple.append(
-                    filter_triples[np.logical_and(filter_triples[:, 1] == o, filter_triples[:, 2] == r)][:, 0])
+                    triples_to_filter[np.logical_and(triples_to_filter[:, 1] == o, triples_to_filter[:, 2] == r)][:, 0])
                 self.true_triples_object_corrupted_per_triple.append(
-                    filter_triples[np.logical_and(filter_triples[:, 0] == s, filter_triples[:, 2] == r)][:, 1])
+                    triples_to_filter[np.logical_and(triples_to_filter[:, 0] == s, triples_to_filter[:, 2] == r)][:, 1])
             
                 #print(triple, len(self.true_triples_subject_corrupted_per_triple[-1]), len(self.true_triples_object_corrupted_per_triple[-1]))
                 
             print('Subject-corrupted triples: Found on average', np.mean([len(arr) for arr in self.true_triples_subject_corrupted_per_triple]), 'triples that were actually true')
             print('Object-corrupted triples: Found on average', np.mean([len(arr) for arr in self.true_triples_object_corrupted_per_triple]), 'triples that were actually true')
             print()
-                
+
+    def _get_rank_new(self, net, subject_embeddings, object_embeddings, relations, n, true_triples=None):
+        with torch.no_grad():
+            scores = net.decoder(subject_embeddings, object_embeddings, relations)
+            # TODO: If memory problems arise, do the line above via utils.predict, similar to:
+            # scores = utils.predict(scoring_model, [subject_embeddings, object_embeddings, relations], batch_size=16, move_to_cuda=True, move_to_cpu=True)
+            # TODO: Probably not required.
+            torch.cuda.empty_cache()
+            #score_true_triple = scores[n]
+
+            # Set score of true triple and any potential other true triples (in filtered setting) to 0.
+            # TODO: Maybe rename n to index_true_triple
+            #scores[n] = 0
+            if self.filtered:
+                # TODO: Maybe rename true_triples to indices_true_triples
+                # TODO: Check that this doesn't set the score of the true triple to 0.
+                scores[true_triples] = 0
+
+            # TODO: Check that dim 1 is correct here.
+            r = rank(scores, n, dim=0)
+            return r
+            #return rank(scores, n)
+
+
+
     def _get_rank(self, net, subject_embeddings, object_embeddings, relations, n, true_triples=None):
         with torch.no_grad():
-            # TODO: Change to .to('cpu')
             scores = net.decoder(subject_embeddings, object_embeddings, relations).data.cpu().numpy()
-        torch.cuda.empty_cache()
-        #scores = utils.predict(scoring_model, [subject_embeddings, object_embeddings, relations], batch_size=16, move_to_cuda=True, move_to_cpu=True)
-        score_true_triple = scores[n]
-        
-        # TODO: Maybe do not delete the scores, but set them to 0, like in ConvE code. 
-        #       Especially in combination with the pytorch speedup of ranking, see below.
-        if self.filtered:
-            scores_corrupted_triples = np.delete(scores, true_triples)
-            #print('Removed', len(scores) - len(scores_corrupted_triples), 'triples')
-        else:
-            scores_corrupted_triples = np.delete(scores, [n])
-            
-        # TODO: This takes up 53 % of the time in this function. Speed it up by doing this directly in pytorch.
-        #       See ConvE code (evaluation.py):
-        #       max_values, argsort1 = torch.sort(pred1, 1, descending=True)
-        #       argsort1 = argsort1.cpu().numpy()
-        #       rank1 = np.where(argsort1[i]==e2[i, 0])[0][0]
-        rank = sp.stats.rankdata(-np.hstack([score_true_triple, scores_corrupted_triples]), 'average')[0]  # apply negative so highest score is 
-        #print('rank ordinal:', sp.stats.rankdata(-np.hstack([score_true_triple, scores_corrupted_triples]), 'ordinal')[0])
-        #print('rank average:', sp.stats.rankdata(-np.hstack([score_true_triple, scores_corrupted_triples]), 'average')[0])
-        
-        #rank_unfiltered = sp.stats.rankdata(-scores, 'ordinal')[n]
-        #print(rank, rank_unfiltered, '--> changed', rank_unfiltered-rank, 'ranks')
-        
+            # TODO: If memory problems arise, do the line above via utils.predict, similar to:
+            # scores = utils.predict(scoring_model, [subject_embeddings, object_embeddings, relations], batch_size=16, move_to_cuda=True, move_to_cpu=True)
+            # TODO: Probably unnecessary.
+            torch.cuda.empty_cache()
+
+        if self.filtered:  # set the scores for all triples, which are contained in the dataset, to 0
+            scores[true_triples] = 0
+
+        # While it is possible to do this directly in pytorch (via torch.sort), sp.stats.rankdata handles equal
+        # scores better, and most of the time here is taken up by the calls to the decoder anyways.
+        rank = sp.stats.rankdata(-scores, 'average')[n]  # apply negative so highest score is
+
+        # rank_unfiltered = sp.stats.rankdata(-scores, 'ordinal')[n]
+        # print(rank, rank_unfiltered, '--> changed', rank_unfiltered-rank, 'ranks')
+
         return rank
     
     
