@@ -459,44 +459,53 @@ class AdditiveRelationalGraphConvolution(nn.Module):
                  num_sample_train=10, num_sample_eval=None, activation=F.relu, verbose=False):
         nn.Module.__init__(self)
 
-        # TODO: Maybe create adj_dict from train_triples directly in here.
         self.activation = activation
         self.num_sample_eval = num_sample_eval
         self.num_sample_train = num_sample_train
-        self.relational_adj_dict = relational_adj_dict
-        self.adj_array = np.array([relational_adj_dict[i].keys() + [i] for i in range(num_nodes)], dtype=object)
-
-        # TODO: Implement self-connections as triples here or via sampling below?
-        self_connection_triples = np.zeros((num_nodes, 3))
-        self_connection_triples[:, 0] = np.arange(num_nodes)
-        self_connection_triples[:, 1] = np.arange(num_nodes)
-        self_connection_triples[:, 2] = -1
-        triples = np.concatenate([train_triples, self_connection_triples])
-        self.triples_per_node = np.array([triples[triples[:, 0] == i] for i in range(num_nodes)], dtype=object)
-
+        #self.relational_adj_dict = relational_adj_dict
+        #self.adj_array = np.array([relational_adj_dict[i].keys() + [i] for i in range(num_nodes)], dtype=object)
         self.num_relations = num_relations
         self.verbose = verbose
         # TODO: Rename this probably.
         self.in_features_func = in_features_func
 
-        # TODO: Maybe refactor to layers.
+        # TODO: Maybe use layers here instead and not parameters.
         self.weight = nn.Parameter(torch.FloatTensor(size_out, size_in))
         nn.init.xavier_uniform_(self.weight)
-
         self.relation_weight = nn.Parameter(torch.FloatTensor(size_out, num_relations+1))  # last row is for self-connections, will be accessed via -1
         nn.init.xavier_uniform_(self.relation_weight)
 
-    def sample_neighbors(self, nodes):
-        num_sample = self.num_sample_train if self.training else self.num_sample_eval
+        # TODO: If I use triples_per_node like this, adj_array and relational_adj_dict could actually be removed.
+        # TODO: Implement self-connections as triples here or via sampling below?
+        # Add triples for self-connections (these will be sampled just like normal triples below).
+        self_connection_triples = np.zeros((num_nodes, 3))
+        self_connection_triples[:, 0] = np.arange(num_nodes)
+        self_connection_triples[:, 1] = np.arange(num_nodes)
+        self_connection_triples[:, 2] = -1
+        triples = np.concatenate([train_triples, self_connection_triples])
 
-        # TODO: Maybe create torch tensor here directly.
-        sampled_neighbors_per_node = np.zeros((len(nodes), num_sample), dtype=int)
-        for i, node in enumerate(nodes):
-            sampled_neighbors_per_node[i] = np.random.choice(self.adj_array[node], num_sample)
+        # For each node, get the triples that contain this node as a subject (as a numpy array).
+        # Store these triple arrays in an array of objects, so we can retrieve them faster during sampling.
+        self.triples_per_node = np.array([triples[triples[:, 0] == i] for i in range(num_nodes)], dtype=object)
 
-        return sampled_neighbors_per_node
 
-    def sample_neighbors_and_relations(self, nodes):
+        # def sample_neighbors(self, nodes):
+    #     num_sample = self.num_sample_train if self.training else self.num_sample_eval
+    #
+    #     # TODO: Maybe create torch tensor here directly.
+    #     sampled_neighbors_per_node = np.zeros((len(nodes), num_sample), dtype=int)
+    #     for i, node in enumerate(nodes):
+    #         sampled_neighbors_per_node[i] = np.random.choice(self.adj_array[node], num_sample)
+    #
+    #     return sampled_neighbors_per_node
+
+    def sample_edges(self, nodes):
+        """
+        Sample a fixed number of edges for each node in `nodes`. Return the neighboring nodes and the relations.
+
+        This is based on the training triples, so it doesn't see the full graph. If a node has fewer edges than
+        the number of edges to sample, repeat them.
+        """
         num_sample = self.num_sample_train if self.training else self.num_sample_eval
 
         # TODO: Maybe create torch tensor on cuda here directly. Check how this affects runtime.
@@ -504,33 +513,48 @@ class AdditiveRelationalGraphConvolution(nn.Module):
         sampled_relations_per_node = np.zeros((len(nodes), num_sample), dtype=int)
 
         for i, node in enumerate(nodes):
-            triples = self.triples_per_node[node][np.random.randint(len(self.triples_per_node[node]), size=num_sample)]
-            sampled_neighbors_per_node[i] = triples[:, 1]
-            sampled_relations_per_node[i] = triples[:, 2]
+            sampled_triples = self.triples_per_node[node][np.random.randint(len(self.triples_per_node[node]), size=num_sample)]
+            sampled_neighbors_per_node[i] = sampled_triples[:, 1]
+            sampled_relations_per_node[i] = sampled_triples[:, 2]
 
         return sampled_neighbors_per_node, sampled_relations_per_node
 
     def forward(self, nodes):
-        sampled_neighbors_per_node, sampled_relations_per_node = self.sample_neighbors_and_relations(nodes)
+
+        # Step 1: Sample a fixed number of edges for each node.
+        sampled_neighbors_per_node, sampled_relations_per_node = self.sample_edges(nodes)
 
         # TODO: Investigate which effect the explicit self-embedding has.
         #input_embeddings = self.in_features_func(nodes).mm(self.weight.t())
 
-        # TODO: Put this into a better structure.
-        if self.in_features_func is None:
-            neighbor_embeddings = self.weight[:, sampled_neighbors_per_node.flatten()]
-        else:
-            neighbor_embeddings = self.in_features_func(torch.from_numpy(sampled_neighbors_per_node.flatten()))
-        neighbor_embeddings = neighbor_embeddings.view(sampled_neighbors_per_node.shape[0], sampled_neighbors_per_node.shape[1], -1)
-        aggregated_neighbor_embeddings = neighbor_embeddings.mean(1)
-        if self.in_features_func is not None:
-            # TODO: Maybe rename this, b/c this is the embeddings times the weight matrix.
-            aggregated_neighbor_embeddings = aggregated_neighbor_embeddings.mm(self.weight.t())
+        # TODO: Investigate again if selecting the embeddings from the weight matrix directly gives a performance advantage.
+        #       Also look in my notes!
+        #if self.in_features_func is None:
+        #    neighbor_embeddings = self.weight[:, sampled_neighbors_per_node.flatten()]
+        #else:
+        #    neighbor_embeddings = self.in_features_func(torch.from_numpy(sampled_neighbors_per_node.flatten()))
 
-        relation_embeddings = self.relation_weight[:, torch.from_numpy(sampled_relations_per_node.flatten())].view(sampled_relations_per_node.shape[0], sampled_relations_per_node.shape[1], -1)
+        # Step 2: Get the node embeddings for all sampled neighbors (shape: batch size (i.e. len(nodes)), num sample, embedding size of previous layer).
+        neighbor_embeddings = self.in_features_func(torch.from_numpy(sampled_neighbors_per_node.flatten()))
+        neighbor_embeddings = neighbor_embeddings.view(sampled_neighbors_per_node.shape[0], sampled_neighbors_per_node.shape[1], -1)
+
+        # Step 3: For each node, take the mean of its neighbor embeddings (shape: batch size, embedding size of previous layer).
+        aggregated_neighbor_embeddings = neighbor_embeddings.mean(1)
+        #if self.in_features_func is not None:
+        #    # TODO: Maybe rename this, b/c this is the embeddings times the weight matrix.
+        #    aggregated_neighbor_embeddings = aggregated_neighbor_embeddings.mm(self.weight.t())
+
+        # Step 4: Get the relation embeddings for all sampled relations (shape: batch size, num sample, embedding size of this layer).
+        relation_embeddings = self.relation_weight[:, torch.from_numpy(sampled_relations_per_node.flatten())]
+        relation_embeddings = relation_embeddings.view(sampled_relations_per_node.shape[0], sampled_relations_per_node.shape[1], -1)
+
+        # Step 5: For each node, take the mean of its relation embeddings (shape: batch_size, embedding size of this layer).
         aggregated_relation_embeddings = relation_embeddings.mean(1)
 
-        output_embeddings = aggregated_neighbor_embeddings + aggregated_relation_embeddings# + input_embeddings
+        # Step 6: Multiply the (aggregated) neighbor embeddings with the weight matrix (this converts
+        # the embedding size of the previous layer to the embedding size of this layer), add the relation embeddings
+        # and apply the activation function.
+        output_embeddings = aggregated_neighbor_embeddings.mm(self.weight.t()) + aggregated_relation_embeddings# + input_embeddings
         return self.activation(output_embeddings)
 
 

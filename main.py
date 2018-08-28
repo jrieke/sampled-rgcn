@@ -30,6 +30,11 @@ relational_adj_dict = get_relational_adj_dict(train_triples)
 #adj_dict = get_adj_dict(train_triples, undirected=True)
 
 
+# Sanity check 4: Overfit on a few batches.
+#print('WARNING: Sanity check enabled')
+#train_triples = train_triples[:1000]
+
+
 use_cuda = True
 device = torch.device('cuda' if use_cuda and torch.cuda.is_available() else 'cpu')
 print('Using device:', device)
@@ -53,16 +58,16 @@ node_features = None
 
 utils.seed_all(0)
 # TODO: Make device parameter obsolete by moving everything to the device once .to(device) is called.
-#net = UnsupervisedRGCN(num_nodes, num_relations, relational_adj_dict, train_triples, embedding_size=500, dropout=0.5,
-#                       num_sample_train=10, num_sample_eval=10, activation=F.elu,
-#                       node_features=node_features, device=device)
-net = DistMult(500, num_nodes, num_relations, 0)
+net = UnsupervisedRGCN(num_nodes, num_relations, relational_adj_dict, train_triples, embedding_size=500, dropout=0.5,
+                       num_sample_train=10, num_sample_eval=10, activation=F.elu,
+                       node_features=node_features, device=device)
+#net = DistMult(500, num_nodes, num_relations, 0)
 net.to(device)
 optimizer = torch.optim.Adam(filter(lambda parameter: parameter.requires_grad, net.parameters()), lr=0.001)
 
 train_via_classification(net, train_triples, val_triples, optimizer, num_nodes, train_ranker, val_ranker,
                   num_epochs=35, batch_size=64, batch_size_eval=512, device=device,
-                  history=history, dry_run=True, ranking_eval=True)
+                  history=history, dry_run=False, ranking_eval=False)
 
 
 

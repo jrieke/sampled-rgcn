@@ -214,12 +214,34 @@ def train_via_classification(net, train_triples, val_triples, optimizer, num_nod
             batch_labels = batch_labels.to(device)
 
             # Sanity check 1: Train on 0 inputs.
-            #print('WARNING: Sanity check enabled')
+            #train_loader_tqdm.set_description('WARNING: Sanity check enabled')
             #batch_triples = torch.zeros_like(batch_triples)
 
             # Sanity check 2: Train on 0 targets.
-            #print('WARNING: Sanity check enabled')
+            #train_loader_tqdm.set_description('WARNING: Sanity check enabled')
             #batch_labels = torch.zeros_like(batch_labels)
+
+            # Sanity check 3: Overfit on a single batch.
+            #train_loader_tqdm.set_description('WARNING: Sanity check enabled')
+            #if epoch == 0 and batch == 0:
+            #    fixed_batch_values = batch_triples, batch_labels
+            #else:
+            #    batch_triples, batch_labels = fixed_batch_values
+
+            # Sanity check 4: Overfit on a few batches.
+            train_loader_tqdm.set_description('WARNING: Sanity check enabled')
+            if epoch == 0:
+                if batch == 0:
+                    fixed_batch_values = []
+                if batch < 100:
+                    fixed_batch_values.append((batch_triples, batch_labels))
+                else:
+                    break
+            else:
+                if batch < len(fixed_batch_values):
+                    batch_triples, batch_labels = fixed_batch_values[batch]
+                else:
+                    break
 
 
             optimizer.zero_grad()
