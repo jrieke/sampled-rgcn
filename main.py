@@ -58,7 +58,7 @@ node_features = None
 
 utils.seed_all(0)
 # TODO: Make device parameter obsolete by moving everything to the device once .to(device) is called.
-net = UnsupervisedRGCN(num_nodes, num_relations, relational_adj_dict, train_triples, embedding_size=500, dropout=0.5,
+net = UnsupervisedRGCN(num_nodes, num_relations, relational_adj_dict, train_triples, embedding_size=200, dropout=0,  # embedding_size=500, dropout=0.5
                        num_sample_train=10, num_sample_eval=10, activation=F.elu,
                        node_features=node_features, device=device)
 #net = DistMult(500, num_nodes, num_relations, 0)

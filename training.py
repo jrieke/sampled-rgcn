@@ -184,8 +184,6 @@ def train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, tra
 
 
 
-# TODO: Make validation code work.
-# TODO: Add train_ranker/val_ranker.
 def train_via_classification(net, train_triples, val_triples, optimizer, num_nodes, train_ranker, val_ranker, num_epochs, batch_size, batch_size_eval, device, history=None, save_best_to=None, dry_run=False, ranking_eval=True):
     
     if history is None:
@@ -229,19 +227,19 @@ def train_via_classification(net, train_triples, val_triples, optimizer, num_nod
             #    batch_triples, batch_labels = fixed_batch_values
 
             # Sanity check 4: Overfit on a few batches.
-            train_loader_tqdm.set_description('WARNING: Sanity check enabled')
-            if epoch == 0:
-                if batch == 0:
-                    fixed_batch_values = []
-                if batch < 100:
-                    fixed_batch_values.append((batch_triples, batch_labels))
-                else:
-                    break
-            else:
-                if batch < len(fixed_batch_values):
-                    batch_triples, batch_labels = fixed_batch_values[batch]
-                else:
-                    break
+            # train_loader_tqdm.set_description('WARNING: Sanity check enabled')
+            # if epoch == 0:
+            #     if batch == 0:
+            #         fixed_batch_values = []
+            #     if batch < 100:
+            #         fixed_batch_values.append((batch_triples, batch_labels))
+            #     else:
+            #         break
+            # else:
+            #     if batch < len(fixed_batch_values):
+            #         batch_triples, batch_labels = fixed_batch_values[batch]
+            #     else:
+            #         break
 
 
             optimizer.zero_grad()

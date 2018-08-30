@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from layers import RelationalGraphConvolution, BasisRelationalGraphConvolution, BlockRelationalGraphConvolution, OneHotEmbedding, AdditiveRelationalGraphConvolution
+from layers import OneHotEmbedding, AdditiveRelationalGraphConvolution, LoopRelationalGraphConvolution, TensorRelationalGraphConvolution
 
 
 class AbstractGraphAutoEncoder(nn.Module):
@@ -88,8 +88,11 @@ class UnsupervisedRGCN(AbstractGraphAutoEncoder):
             # Use a one-hot embedding that is generated on the fly during training.
             # Saves 0.8 GB GPU memory on FB15k-237 without increasing the runtime 
             # (vs using a node_features matrix with one-hot embeddings).
-            node_features_size = num_nodes
-            node_features_embedding = OneHotEmbedding(num_nodes, device=device)
+            node_features_size = embedding_size
+            node_features_embedding = nn.Embedding(num_nodes, embedding_size)
+            nn.init.xavier_normal_(node_features_embedding.weight)
+            #node_features_size = num_nodes
+            #node_features_embedding = OneHotEmbedding(num_nodes, device=device)
             print('Creating model with OneHotEmbedding on device', device)
 
         # if regularization is None:
