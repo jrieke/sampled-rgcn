@@ -231,7 +231,7 @@ def train_via_classification(net, train_triples, val_triples, optimizer, num_nod
             # if epoch == 0:
             #     if batch == 0:
             #         fixed_batch_values = []
-            #     if batch < 100:
+            #     if batch < 10:
             #         fixed_batch_values.append((batch_triples, batch_labels))
             #     else:
             #         break
@@ -244,6 +244,7 @@ def train_via_classification(net, train_triples, val_triples, optimizer, num_nod
 
             optimizer.zero_grad()
             output = net(batch_triples)
+            #print(output)
             loss = loss_function(output, batch_labels)
             loss.backward()
             optimizer.step()

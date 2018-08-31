@@ -30,11 +30,6 @@ relational_adj_dict = get_relational_adj_dict(train_triples)
 #adj_dict = get_adj_dict(train_triples, undirected=True)
 
 
-# Sanity check 4: Overfit on a few batches.
-#print('WARNING: Sanity check enabled')
-#train_triples = train_triples[:1000]
-
-
 use_cuda = True
 device = torch.device('cuda' if use_cuda and torch.cuda.is_available() else 'cpu')
 print('Using device:', device)

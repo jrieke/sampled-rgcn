@@ -120,7 +120,7 @@ class UnsupervisedRGCN(AbstractGraphAutoEncoder):
         #                                                   **kwargs)
         # self.graph_conv1.name='conv1'
         # TODO: Check that weights of graph_conv1 still change, as it is referenced only indirectly here now.
-        graph_conv1 = AdditiveRelationalGraphConvolution(node_features_size, embedding_size, num_nodes, num_relations,
+        graph_conv1 = TensorRelationalGraphConvolution(node_features_size, embedding_size, num_nodes, num_relations,
                                                          node_features_embedding, relational_adj_dict, train_triples,
                                                          **kwargs)
         #graph_conv2 = AdditiveRelationalGraphConvolution(embedding_size, embedding_size, num_nodes, num_relations,
