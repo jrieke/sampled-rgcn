@@ -48,7 +48,7 @@ def block_diagonal(blocks):
 #         self.activation = activation
 #
 #         self.weight = nn.Parameter(torch.FloatTensor(out_features, in_features))
-#         nn.init.xavier_uniform(self.weight)
+#         nn.init.xavier_normal(self.weight)
 #
 #
 #     # TODO: Refactor this.
@@ -474,9 +474,9 @@ class AdditiveRelationalGraphConvolution(nn.Module):
         self.in_features_func = in_features_func
 
         self.weight = nn.Parameter(torch.FloatTensor(size_out, size_in))
-        nn.init.xavier_uniform_(self.weight)
+        nn.init.xavier_normal_(self.weight)
         self.relation_embedding = nn.Embedding(num_relations + 1, size_out)
-        nn.init.xavier_uniform_(self.relation_embedding.weight)
+        nn.init.xavier_normal_(self.relation_embedding.weight)
 
         # TODO: If I use triples_per_node like this, adj_array and relational_adj_dict could actually be removed.
         # TODO: Implement self-connections as triples here or via sampling below?
@@ -551,7 +551,7 @@ class AdditiveRelationalGraphConvolution(nn.Module):
         # TODO: Could do the last step more efficiently by using an EmbeddingBag layer like below.
         #       Decreases runtime from 5:30 min to 5 min on CPU. Investigate thoroughly if this works, then maybe use it.
         # self.relation_embedding_mean = nn.EmbeddingBag(num_relations + 1, size_out, mode='mean')
-        # nn.init.xavier_uniform_(self.relation_embedding_mean.weight)
+        # nn.init.xavier_normal_(self.relation_embedding_mean.weight)
         # aggregated_relation_embeddings = self.relation_embedding_mean(sampled_relations_per_node)
 
         # Step 4: Multiply the (aggregated) neighbor embeddings with the weight matrix (this converts
@@ -580,11 +580,11 @@ class LoopRelationalGraphConvolution(nn.Module):
         self.relation_weights = nn.ParameterList()
         for relation in range(num_relations+1):
             weight = nn.Parameter(torch.FloatTensor(size_out, size_in))
-            nn.init.xavier_uniform_(weight)
+            nn.init.xavier_normal_(weight)
             self.relation_weights.append(weight)
         # TODO: Is it more memory-efficient to use parameter list here or a 3D tensor like below.
         #self.relation_weights = nn.Parameter(torch.FloatTensor(num_relations+1, size_out, size_in))  # last row is for self-connections, will be accessed via -1
-        #nn.init.xavier_uniform_(self.relation_weights)
+        #nn.init.xavier_normal_(self.relation_weights)
 
         # TODO: If I use triples_per_node like this, adj_array and relational_adj_dict could actually be removed.
         # TODO: Implement self-connections as triples here or via sampling below?
@@ -674,9 +674,9 @@ class TensorRelationalGraphConvolution(nn.Module):
 
         self.relation_weights = nn.Parameter(torch.FloatTensor(num_relations+1, size_out, size_in))  # +1 for self-connections
         # TODO: Is there any difference between these two?
-        #nn.init.xavier_uniform_(self.relation_weights)
+        #nn.init.xavier_normal_(self.relation_weights)
         for i in range(len(self.relation_weights)):
-            nn.init.xavier_uniform_(self.relation_weights[i])
+            nn.init.xavier_normal_(self.relation_weights[i])
 
 
         # TODO: If I use triples_per_node like this, adj_array and relational_adj_dict could actually be removed.
