@@ -90,7 +90,7 @@ class UnsupervisedRGCN(AbstractGraphAutoEncoder):
             # (vs using a node_features matrix with one-hot embeddings).
             node_features_size = embedding_size
             node_features_embedding = nn.Embedding(num_nodes, embedding_size)
-            nn.init.xavier_normal_(node_features_embedding.weight)
+            nn.init.xavier_uniform_(node_features_embedding.weight)
             #node_features_size = num_nodes
             #node_features_embedding = OneHotEmbedding(num_nodes, device=device)
             print('Creating model with OneHotEmbedding on device', device)
@@ -120,12 +120,12 @@ class UnsupervisedRGCN(AbstractGraphAutoEncoder):
         #                                                   **kwargs)
         # self.graph_conv1.name='conv1'
         # TODO: Check that weights of graph_conv1 still change, as it is referenced only indirectly here now.
-        graph_conv1 = AdditiveRelationalGraphConvolution(node_features_size, embedding_size, num_nodes, num_relations,
+        graph_conv1 = TensorRelationalGraphConvolution(node_features_size, embedding_size, num_nodes, num_relations,
                                                          node_features_embedding, relational_adj_dict, train_triples,
                                                          **kwargs)
-        #graph_conv2 = AdditiveRelationalGraphConvolution(embedding_size, embedding_size, num_nodes, num_relations,
-        #                                                 graph_conv1, relational_adj_dict, train_triples,
-        #                                                 **kwargs)
+        # graph_conv2 = TensorRelationalGraphConvolution(embedding_size, embedding_size, num_nodes, num_relations,
+        #                                                graph_conv1, relational_adj_dict, train_triples,
+        #                                                **kwargs)
 
         # self.graph_conv2.name='conv2'
         #self.encoder = self.graph_conv1

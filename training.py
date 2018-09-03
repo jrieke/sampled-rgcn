@@ -211,6 +211,7 @@ def train_via_classification(net, train_triples, val_triples, optimizer, num_nod
             batch_triples = batch_triples.to(device)
             batch_labels = batch_labels.to(device)
 
+
             # Sanity check 1: Train on 0 inputs.
             #train_loader_tqdm.set_description('WARNING: Sanity check enabled')
             #batch_triples = torch.zeros_like(batch_triples)
