@@ -53,7 +53,7 @@ class TransEDecoder(nn.Module):
     def __init__(self, embedding_size, num_relations, p_norm=2):
         super(TransEDecoder, self).__init__()
         self.relation_embedding = nn.Embedding(num_relations, embedding_size)
-        #nn.init.xavier_normal(self.relation_embedding.weight)
+        nn.init.xavier_normal(self.relation_embedding.weight)
         self.dissimilarity = nn.PairwiseDistance(p=p_norm)
         
     def forward(self, subject_embeddings, object_embeddings, relations):

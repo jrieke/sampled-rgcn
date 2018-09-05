@@ -9,12 +9,11 @@ from torch.utils.data import TensorDataset, DataLoader
 from tqdm import tqdm
 #from tqdm import tqdm_notebook as tqdm
 #from tensorboardX import SummaryWriter
+import os
 
 import utils
 
 
-# TODO: Maybe make sure that corrupted triples are truly negative, ie they do not appear anywhere in the dataset.
-#       This is not done in TransE etc, but may improve training.
 def sample_negatives(triples, num_nodes, num_negatives=1):
     """Return a copy of triples where either the subject or the object in each triple is replaced with a random entity."""
     corrupted_triples = []
@@ -32,10 +31,6 @@ class SimplifiedMarginRankingLoss(nn.MarginRankingLoss):
     
     def __call__(self, input1, input2):
         target = torch.ones_like(input1)
-        # TODO: Refactored to pytorch v0.4, test and remove old code.
-        #target = Variable(torch.ones(input1.shape), requires_grad=False)
-        #if input1.is_cuda:
-        #    target = target.cuda()
         return super(SimplifiedMarginRankingLoss, self).__call__(input1, input2, target)
     
 
@@ -51,6 +46,7 @@ class TriplesDatasetClassification(TensorDataset):
         labels = torch.zeros(len(triples_and_negatives), 1)
         labels[:len(triples), 0] = 1
         TensorDataset.__init__(self, torch.from_numpy(triples_and_negatives), labels)
+
         
         
 class TriplesDatasetRanking(TensorDataset):
@@ -185,9 +181,13 @@ def train_via_ranking(net, train_triples, val_triples, optimizer, num_nodes, tra
 
 
 def train_via_classification(net, train_triples, val_triples, optimizer, num_nodes, train_ranker, val_ranker, num_epochs, batch_size, batch_size_eval, device, history=None, save_best_to=None, dry_run=False, ranking_eval=True):
-    
+
+    #if log_dir is not None:
+    #    writer = SummaryWriter(log_dir=log_dir)
+
     if history is None:
         history = utils.History()
+
     loss_function = nn.BCEWithLogitsLoss()
     
     if dry_run:
@@ -252,8 +252,6 @@ def train_via_classification(net, train_triples, val_triples, optimizer, num_nod
 
             batches_history.log_metric('loss', loss.item())
             batches_history.log_metric('acc', (torch.sigmoid(output).round() == batch_labels).float().mean().item())
-            #batches_history.log_metric('mean_diff', (output - output_negative).mean().item())
-            #batches_history.log_metric('median_diff', (output - output_negative).median().item())
 
             if batch % 10 == 0:
                 train_loader_tqdm.set_postfix(batches_history.latest())
@@ -278,11 +276,8 @@ def train_via_classification(net, train_triples, val_triples, optimizer, num_nod
                 output = net(batch_triples)
                 loss = loss_function(output, batch_labels)
 
-                # TODO: Especially getting the loss takes quite some time (as much as a single prediction for dist mult), maybe replace it by a running metric directly in torch.
                 val_batches_history.log_metric('loss', loss.item())
                 val_batches_history.log_metric('acc', (torch.sigmoid(output).round() == batch_labels).float().mean().item())
-                #val_batches_history.log_metric('mean_diff', (output - output_negative).mean().item())
-                #val_batches_history.log_metric('median_diff', (output - output_negative).median().item())
 
             del batch_triples, batch_labels, output, loss
             torch.cuda.empty_cache()
@@ -290,17 +285,16 @@ def train_via_classification(net, train_triples, val_triples, optimizer, num_nod
         # for key in running_metrics:
         #    running_metrics[key] /= len(batches)
 
-        # TODO: Maybe implement these metrics in a batched fashion.
         history.log_metric('loss', batches_history.mean('loss'),
                            val_batches_history.mean('loss'), 'Loss', print_=True)
-        # writer.add_scalar('test/loss', batches_history.mean('loss'), epoch)
-        # writer.add_scalar('test/val_loss', val_batches_history.mean('loss'), epoch)
         history.log_metric('acc', batches_history.mean('acc'),
-                           val_batches_history.mean('acc'), 'Accuracy', print_=True)
-        #history.log_metric('mean_diff', batches_history.mean('mean_diff'),
-        #                   val_batches_history.mean('mean_diff'), 'Mean Difference', print_=True)
-        #history.log_metric('median_diff', batches_history.mean('median_diff'),
-        #                   val_batches_history.mean('median_diff'), 'Median Difference', print_=True)
+                          val_batches_history.mean('acc'), 'Accuracy', print_=True)
+        # if log_dir is not None:
+        #     writer.add_scalar('loss', batches_history.mean('loss'), epoch)
+        #     writer.add_scalar('val_loss', val_batches_history.mean('loss'), epoch)
+        #     writer.add_scalar('acc', batches_history.mean('acc'), epoch)
+        #     writer.add_scalar('val_acc', val_batches_history.mean('val_acc'), epoch)
+
 
         # -------------------- Ranking --------------------
         if ranking_eval:
@@ -313,6 +307,17 @@ def train_via_classification(net, train_triples, val_triples, optimizer, num_nod
             history.log_metric('hits_1', hits_1, val_hits_1, 'Hits@1', print_=True)
             history.log_metric('hits_3', hits_3, val_hits_3, 'Hits@3', print_=True)
             history.log_metric('hits_10', hits_10, val_hits_10, 'Hits@10', print_=True)
+            # if log_dir is not None:
+            #     writer.add_scalar('mean_rank', mean_rank, epoch)
+            #     writer.add_scalar('val_mean_rank', mean_rank, epoch)
+            #     writer.add_scalar('mean_rec_rank', mean_rec_rank, epoch)
+            #     writer.add_scalar('val_mean_rec_rank', val_mean_rec_rank, epoch)
+            #     writer.add_scalar('hits_1', hits_1, epoch)
+            #     writer.add_scalar('val_hits1', val_hits_1, epoch)
+            #     writer.add_scalar('hits_3', hits_3, epoch)
+            #     writer.add_scalar('val_hits3', val_hits_3, epoch)
+            #     writer.add_scalar('hits_10', hits_10, epoch)
+            #     writer.add_scalar('val_hits_10', val_hits_10, epoch)
 
         # -------------------- Saving --------------------
         if save_best_to is not None and (

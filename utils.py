@@ -7,12 +7,15 @@ import pandas as pd
 
 import itertools
 from collections import OrderedDict, Callable
+import collections
 import os
 from tqdm import tqdm_notebook
 from sklearn.model_selection import train_test_split
 
 import torch
 import random
+import datetime
+import json
 
 
 # -------------------- Data Utils --------------------
@@ -169,156 +172,247 @@ def seed_all(seed=None):
     
 # -------------------- Logging Utils --------------------
 
-class OrderedDefaultDict(OrderedDict):
-    """
-    Combination of collections.OrderedDict and collections.defaultdict.
-    
-    From: https://stackoverflow.com/questions/6190331/can-i-do-an-ordered-default-dict-in-python
-    """
-    # Source: http://stackoverflow.com/a/6190500/562769
-    def __init__(self, default_factory=None, *a, **kw):
-        if (default_factory is not None and
-           not isinstance(default_factory, Callable)):
-            raise TypeError('first argument must be callable')
-        OrderedDict.__init__(self, *a, **kw)
-        self.default_factory = default_factory
-
-    def __getitem__(self, key):
-        try:
-            return OrderedDict.__getitem__(self, key)
-        except KeyError:
-            return self.__missing__(key)
-
-    def __missing__(self, key):
-        if self.default_factory is None:
-            raise KeyError(key)
-        self[key] = value = self.default_factory()
-        return value
-
-    def __reduce__(self):
-        if self.default_factory is None:
-            args = tuple()
-        else:
-            args = self.default_factory,
-        return type(self), args, None, None, self.items()
-
-    def copy(self):
-        return self.__copy__()
-
-    def __copy__(self):
-        return type(self)(self.default_factory, self)
-
-    def __deepcopy__(self, memo):
-        import copy
-        return type(self)(self.default_factory,
-                          copy.deepcopy(self.items()))
-
-    def __repr__(self):
-        return 'OrderedDefaultDict(%s, %s)' % (self.default_factory,
-                                               OrderedDict.__repr__(self))
+# class OrderedDefaultDict(OrderedDict):
+#     """
+#     Combination of collections.OrderedDict and collections.defaultdict.
+#
+#     From: https://stackoverflow.com/questions/6190331/can-i-do-an-ordered-default-dict-in-python
+#     """
+#     # Source: http://stackoverflow.com/a/6190500/562769
+#     def __init__(self, default_factory=None, *a, **kw):
+#         if (default_factory is not None and
+#            not isinstance(default_factory, Callable)):
+#             raise TypeError('first argument must be callable')
+#         OrderedDict.__init__(self, *a, **kw)
+#         self.default_factory = default_factory
+#
+#     def __getitem__(self, key):
+#         try:
+#             return OrderedDict.__getitem__(self, key)
+#         except KeyError:
+#             return self.__missing__(key)
+#
+#     def __missing__(self, key):
+#         if self.default_factory is None:
+#             raise KeyError(key)
+#         self[key] = value = self.default_factory()
+#         return value
+#
+#     def __reduce__(self):
+#         if self.default_factory is None:
+#             args = tuple()
+#         else:
+#             args = self.default_factory,
+#         return type(self), args, None, None, self.items()
+#
+#     def copy(self):
+#         return self.__copy__()
+#
+#     def __copy__(self):
+#         return type(self)(self.default_factory, self)
+#
+#     def __deepcopy__(self, memo):
+#         import copy
+#         return type(self)(self.default_factory,
+#                           copy.deepcopy(self.items()))
+#
+#     def __repr__(self):
+#         return 'OrderedDefaultDict(%s, %s)' % (self.default_factory,
+#                                                OrderedDict.__repr__(self))
             
         
-class History(OrderedDefaultDict):
+# class OldHistory(OrderedDefaultDict):
+#     """Class which stores metrics for each batch or epoch."""
+#
+#     def __init__(self, description=''):
+#         super(History, self).__init__(list)
+#         self.long_names = {}
+#         self.timestamp = str(datetime.datetime.now())
+#         self.description = description
+#         # TODO: Add parameters field.
+#
+#     def log_metric(self, name, value, val_value=None, long_name=None, print_=False):
+#         self[name].append(value)
+#         self.long_names[name] = long_name if long_name is not None else name
+#         if val_value is not None:
+#             val_name = 'val_' + name
+#             self[val_name].append(val_value)
+#             self.long_names[val_name] = 'Val ' + long_name if long_name is not None else val_name
+#             if print_:
+#                 self.summary(name, val_name)
+#         elif print_:
+#                 self.summary(name)
+#
+#     def latest(self, name=None):
+#         if name is not None:
+#             return self[name][-1]
+#         else:
+#             return {name: values[-1] for name, values in self.items()}
+#
+#     def mean(self, name=None):
+#         if name is not None:
+#             return np.mean(self[name])
+#         else:
+#             return {name: np.mean(values) for name, values in self.items()}
+#
+#     # TODO: Make this method both a class method and static (to compare multiple logs).
+#     def plot(self, *names, **kwargs):
+#         plot_val = kwargs.get('plot_val', True)
+#         figsize = kwargs.get('figsize', None)
+#         compare = kwargs.get('compare', None)
+#         xlim = kwargs.get('xlim')
+#
+#         if compare is None:
+#             compare = []
+#         else:
+#             for i in range(len(compare)):
+#                 try:
+#                     compare[i] = History.load(compare[i])
+#                 except:
+#                     pass
+#
+#         fig, axes = plt.subplots(len(names), sharex=True, figsize=figsize)
+#
+#         for name, ax in zip(names, axes):
+#             plt.sca(ax)
+#             plt.grid()
+#             plt.ylabel(self.long_names[name])
+#             if xlim:
+#                 plt.xlim(*xlim)
+#
+#             color_cycle = itertools.cycle(plt.rcParams['axes.prop_cycle'].by_key()['color'])  # default mpl colors
+#             for h in [self] + compare:
+#                 color = next(color_cycle)
+#                 if name in h:
+#                     plt.plot(h[name], color=color)
+#                 if plot_val and 'val_' + name in h:
+#                     plt.plot(h['val_' + name], color=color, linestyle='--')
+#
+#         axes[-1].set_xlabel('Epoch')
+#
+#     # TODO: Implement a new summary method, which prints the metric, its val value, and a new line.
+#     #       Or use tabulate to print a table with the metrics and one column train and one column val.
+#     #def new_summary(self):
+#     #    max_length_names = np.max([len(self.long_names[name]) for name in names])
+#     #    names_to_print = self.keys()
+#     #    for name in names_to_print:
+#     #        print(('{:' + str(max_length_names+4) + '}{}').format(self.long_names[name] + ':', self[name][-1]))
+#
+#
+#     # TODO: Maybe print timestamp, description, parameters here.
+#     def summary(self, *names):
+#         if not names:
+#             names = self.keys()
+#
+#         max_length_names = np.max([len(self.long_names[name]) for name in names])
+#         for name in names:
+#             print(('{:' + str(max_length_names+4) + '}{}').format(self.long_names[name] + ':', self[name][-1]))
+#         print()
+#
+#     # TODO: Save and load as json (via json.dumps(self.__dict__)).
+#     def save(self, filename):
+#         with open(filename, 'w') as outfile:
+#             json.dump(self.__dict__, outfile)
+#         #df = pd.DataFrame.from_dict(self)
+#         #df = df.rename(columns=lambda name: '{} [{}]'.format(name, self.long_names[name]))
+#         #df.to_csv(filename, index=False, sep=str('\t'))
+#
+#     @staticmethod
+#     def load(filename):
+#         history = History()
+#         df = pd.read_csv(filename, sep='\t')
+#         for col in df:
+#             name, long_name = col.split(' ', 1)
+#             long_name = long_name[1:-1]
+#             history[name] = list(df[col])
+#             history.long_names[name] = long_name
+#         return history
+
+
+class History(object):
     """Class which stores metrics for each batch or epoch."""
-    
-    def __init__(self):
-        super(History, self).__init__(list)
-        self.long_names = {}
-        # TODO: Add timestamp, description, and parameters fields.
-        
-    def log_metric(self, name, value, val_value=None, long_name=None, print_=False):
-        self[name].append(value)
-        self.long_names[name] = long_name if long_name is not None else name
+
+    def __init__(self, description=''):
+        super(History, self).__init__()
+        self.values = collections.defaultdict(list)
+        self.timestamp = str(datetime.datetime.now())
+        self.description = description
+        # TODO: Add parameters field.
+
+    def __repr__(self):
+        return 'History from {} with metrics {}'.format(self.timestamp, self.values.keys())
+
+    def log(self, name, value, val_value=None, print_=False):
+        self.values[name].append(value)
         if val_value is not None:
             val_name = 'val_' + name
-            self[val_name].append(val_value)
-            self.long_names[val_name] = 'Val ' + long_name if long_name is not None else val_name
+            self.values[val_name].append(val_value)
             if print_:
-                self.summary(name, val_name)
+                print(name + '    :', value)
+                print(val_name + ':', val_value)
         elif print_:
-                self.summary(name)
-                
-    def latest(self, name=None):
+            print(name + ':', value)
+
+    def last(self, name=None):
         if name is not None:
-            return self[name][-1]
+            return self.values[name][-1]
         else:
-            return {name: values[-1] for name, values in self.items()}
-    
+            return {name: values[-1] for name, values in self.values.items()}
+
     def mean(self, name=None):
         if name is not None:
-            return np.mean(self[name])
+            return np.mean(self.values[name])
         else:
-            return {name: np.mean(values) for name, values in self.items()}
-        
-    # TODO: Make this method both a class method and static (to compare multiple logs).
-    def plot(self, *names, **kwargs):
-        plot_val = kwargs.get('plot_val', True)
-        figsize = kwargs.get('figsize', None)
-        compare = kwargs.get('compare', None)
-        xlim = kwargs.get('xlim')
-        
-        if compare is None:
-            compare = []
+            return {name: np.mean(values) for name, values in self.values.items()}
+
+    def plot(self, names=None, plot_val=True, figsize=None, xlim=None, compare_to=None):
+        if names is None:
+            names = self.values.keys()
+
+        if compare_to is None:
+            compare_to = []
         else:
-            for i in range(len(compare)):
+            # If one of the elements in compare_to is a filename, load it as a History object.
+            for i in range(len(compare_to)):
                 try:
-                    compare[i] = History.load(compare[i])
+                    compare_to[i] = History.load(compare_to[i])
                 except:
                     pass
-        
+
         fig, axes = plt.subplots(len(names), sharex=True, figsize=figsize)
 
         for name, ax in zip(names, axes):
             plt.sca(ax)
             plt.grid()
-            plt.ylabel(self.long_names[name])
+            plt.ylabel(name)
             if xlim:
                 plt.xlim(*xlim)
-            
+
             color_cycle = itertools.cycle(plt.rcParams['axes.prop_cycle'].by_key()['color'])  # default mpl colors
-            for h in [self] + compare:
+            for h in [self] + compare_to:
                 color = next(color_cycle)
-                if name in h:
-                    plt.plot(h[name], color=color)
-                if plot_val and 'val_' + name in h:
-                    plt.plot(h['val_' + name], color=color, linestyle='--')
+                if name in h.values:
+                    plt.plot(h.values[name], color=color)
+                if plot_val and 'val_' + name in h.values:
+                    plt.plot(h.values['val_' + name], color=color, linestyle='--')
 
         axes[-1].set_xlabel('Epoch')
-        
-    # TODO: Implement a new summary method, which prints the metric, its val value, and a new line.
-    #       Or use tabulate to print a table with the metrics and one column train and one column val.
-    #def new_summary(self):
-    #    max_length_names = np.max([len(self.long_names[name]) for name in names])
-    #    names_to_print = self.keys()
-    #    for name in names_to_print:
-    #        print(('{:' + str(max_length_names+4) + '}{}').format(self.long_names[name] + ':', self[name][-1]))
-        
-        
-    # TODO: Maybe print timestamp, description, parameters here.
-    def summary(self, *names):
-        if not names:
-            names = self.keys()
-        
-        max_length_names = np.max([len(self.long_names[name]) for name in names])
-        for name in names:
-            print(('{:' + str(max_length_names+4) + '}{}').format(self.long_names[name] + ':', self[name][-1]))
-        print()
-        
-    # TODO: Save and load as json (via json.dumps(self.__dict__)).
+
+    @staticmethod
+    def plot_from_file(filenames, names=None, plot_val=True, figsize=None, xlim=None):
+        History.load(filenames[0]).plot(names=names, plot_val=plot_val, figsize=figsize, xlim=xlim,
+                                        compare_to=filenames[1:])
+
     def save(self, filename):
-        df = pd.DataFrame.from_dict(self)
-        df = df.rename(columns=lambda name: '{} [{}]'.format(name, self.long_names[name]))
-        df.to_csv(filename, index=False, sep=str('\t'))
-        
+        with open(filename, 'w') as f:
+            json.dump(self.__dict__, f)
+
     @staticmethod
     def load(filename):
-        history = History()
-        df = pd.read_csv(filename, sep='\t')
-        for col in df:
-            name, long_name = col.split(' ', 1)
-            long_name = long_name[1:-1]
-            history[name] = list(df[col])
-            history.long_names[name] = long_name
-        return history
-    
-    
+        h = History()
+        with open('test.json') as f:
+            contents = json.load(f)
+        h.timestamp = contents['timestamp']
+        h.description = contents['description']
+        h.values.update(contents['values'])
+        return h
