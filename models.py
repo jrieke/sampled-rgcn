@@ -75,7 +75,7 @@ class UnsupervisedRGCN(AbstractGraphAutoEncoder):
     **kwargs: Any additional keyword args, that should be passed on to the graph conv layers.
     """
 
-    def __init__(self, num_nodes, num_relations, relational_adj_dict, train_triples, node_features=None, embedding_size=128,
+    def __init__(self, num_nodes, num_relations, train_triples, node_features=None, embedding_size=128,
                  dropout=0, regularization=None, device='cuda', **kwargs):
         
         if node_features is not None:
@@ -121,10 +121,10 @@ class UnsupervisedRGCN(AbstractGraphAutoEncoder):
         # self.graph_conv1.name='conv1'
         # TODO: Check that weights of graph_conv1 still change, as it is referenced only indirectly here now.
         graph_conv1 = TensorRelationalGraphConvolution(node_features_size, embedding_size, num_nodes, num_relations,
-                                                         node_features_embedding, relational_adj_dict, train_triples,
+                                                         node_features_embedding, train_triples,
                                                          **kwargs)
         # graph_conv2 = TensorRelationalGraphConvolution(embedding_size, embedding_size, num_nodes, num_relations,
-        #                                                graph_conv1, relational_adj_dict, train_triples,
+        #                                                graph_conv1, train_triples,
         #                                                **kwargs)
 
         # self.graph_conv2.name='conv2'

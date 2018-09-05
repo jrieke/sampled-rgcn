@@ -27,7 +27,7 @@ root_dir = 'data/fb15k-237/Release'
 
 num_nodes, num_relations, train_triples, val_triples, test_triples, all_triples, entity_map, relation_map = load_graph(root_dir)
 # TODO: Maybe put those two methods into one with relations=True.
-relational_adj_dict = get_relational_adj_dict(train_triples)
+#relational_adj_dict = get_relational_adj_dict(train_triples)
 #adj_dict = get_adj_dict(train_triples, undirected=True)
 
 
@@ -35,7 +35,7 @@ use_cuda = True
 device = torch.device('cuda' if use_cuda and torch.cuda.is_available() else 'cpu')
 print('Using device:', device)
 
-use_tensorboard = True
+#use_tensorboard = True
 # if use_tensorboard:
 #     existing_logs = map(int, filter(lambda x: x.isdigit(), os.listdir('logs')))
 #     log_dir = 'logs/' + str(np.max(existing_logs)+1)
@@ -60,7 +60,7 @@ node_features = None
 
 utils.seed_all(0)
 # TODO: Make device parameter obsolete by moving everything to the device once .to(device) is called.
-# net = UnsupervisedRGCN(num_nodes, num_relations, relational_adj_dict, train_triples, embedding_size=200, dropout=0,  # embedding_size=500, dropout=0.5
+# net = UnsupervisedRGCN(num_nodes, num_relations, train_triples, embedding_size=200, dropout=0,  # embedding_size=500, dropout=0.5
 #                        num_sample_train=10, num_sample_eval=10, activation=F.elu,
 #                        node_features=node_features, device=device)
 net = DistMult(500, num_nodes, num_relations, 0)

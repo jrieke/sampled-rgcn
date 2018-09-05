@@ -329,15 +329,25 @@ def seed_all(seed=None):
 #         return history
 
 
+def get_timestamp():
+    return str(datetime.datetime.now())
+
+def next_log_index(log_dir):
+    existing_logs = map(int, filter(lambda x: x.isdigit(), os.listdir(log_dir)))
+    if not existing_logs:
+        return 1
+    else:
+        return np.max(existing_logs)+1
+
 class History(object):
     """Class which stores metrics for each batch or epoch."""
 
-    def __init__(self, description=''):
+    def __init__(self, desc='', params=None):
         super(History, self).__init__()
         self.values = collections.defaultdict(list)
-        self.timestamp = str(datetime.datetime.now())
-        self.description = description
-        # TODO: Add parameters field.
+        self.timestamp = get_timestamp()
+        self.desc = desc
+        self.params = params
 
     def __repr__(self):
         return 'History from {} with metrics {}'.format(self.timestamp, self.values.keys())
@@ -413,6 +423,7 @@ class History(object):
         with open('test.json') as f:
             contents = json.load(f)
         h.timestamp = contents['timestamp']
-        h.description = contents['description']
-        h.values.update(contents['values'])
+        h.desc = contents['desc']
+        h.values.update(contents['values'])  # need to update so that values stays a defaultdict
+        h.params = contents['params']
         return h

@@ -250,11 +250,11 @@ def train_via_classification(net, train_triples, val_triples, optimizer, num_nod
             loss.backward()
             optimizer.step()
 
-            batches_history.log_metric('loss', loss.item())
-            batches_history.log_metric('acc', (torch.sigmoid(output).round() == batch_labels).float().mean().item())
+            batches_history.log('loss', loss.item())
+            batches_history.log('acc', (torch.sigmoid(output).round() == batch_labels).float().mean().item())
 
             if batch % 10 == 0:
-                train_loader_tqdm.set_postfix(batches_history.latest())
+                train_loader_tqdm.set_postfix(batches_history.last())
 
         # for key in running_metrics:
         #    running_metrics[key] /= len(batches)
@@ -276,8 +276,8 @@ def train_via_classification(net, train_triples, val_triples, optimizer, num_nod
                 output = net(batch_triples)
                 loss = loss_function(output, batch_labels)
 
-                val_batches_history.log_metric('loss', loss.item())
-                val_batches_history.log_metric('acc', (torch.sigmoid(output).round() == batch_labels).float().mean().item())
+                val_batches_history.log('loss', loss.item())
+                val_batches_history.log('acc', (torch.sigmoid(output).round() == batch_labels).float().mean().item())
 
             del batch_triples, batch_labels, output, loss
             torch.cuda.empty_cache()
@@ -285,10 +285,8 @@ def train_via_classification(net, train_triples, val_triples, optimizer, num_nod
         # for key in running_metrics:
         #    running_metrics[key] /= len(batches)
 
-        history.log_metric('loss', batches_history.mean('loss'),
-                           val_batches_history.mean('loss'), 'Loss', print_=True)
-        history.log_metric('acc', batches_history.mean('acc'),
-                          val_batches_history.mean('acc'), 'Accuracy', print_=True)
+        history.log('loss', batches_history.mean('loss'), val_batches_history.mean('loss'), print_=True)
+        history.log('acc', batches_history.mean('acc'), val_batches_history.mean('acc'), print_=True)
         # if log_dir is not None:
         #     writer.add_scalar('loss', batches_history.mean('loss'), epoch)
         #     writer.add_scalar('val_loss', val_batches_history.mean('loss'), epoch)
@@ -302,11 +300,11 @@ def train_via_classification(net, train_triples, val_triples, optimizer, num_nod
             val_mean_rank, val_mean_rec_rank, val_hits_1, val_hits_3, val_hits_10 = val_ranker(net,
                                                                                                batch_size=batch_size_eval)
 
-            history.log_metric('mean_rank', mean_rank, val_mean_rank, 'Mean Rank', print_=True)
-            history.log_metric('mean_rec_rank', mean_rec_rank, val_mean_rec_rank, 'Mean Rec Rank', print_=True)
-            history.log_metric('hits_1', hits_1, val_hits_1, 'Hits@1', print_=True)
-            history.log_metric('hits_3', hits_3, val_hits_3, 'Hits@3', print_=True)
-            history.log_metric('hits_10', hits_10, val_hits_10, 'Hits@10', print_=True)
+            history.log('mean_rank', mean_rank, val_mean_rank, print_=True)
+            history.log('mean_rec_rank', mean_rec_rank, val_mean_rec_rank, print_=True)
+            history.log('hits_1', hits_1, val_hits_1, print_=True)
+            history.log('hits_3', hits_3, val_hits_3, print_=True)
+            history.log('hits_10', hits_10, val_hits_10, print_=True)
             # if log_dir is not None:
             #     writer.add_scalar('mean_rank', mean_rank, epoch)
             #     writer.add_scalar('val_mean_rank', mean_rank, epoch)
@@ -321,7 +319,8 @@ def train_via_classification(net, train_triples, val_triples, optimizer, num_nod
 
         # -------------------- Saving --------------------
         if save_best_to is not None and (
-                epoch == 0 or history['val_mean_rec_rank'][-1] >= np.max(history['val_mean_rec_rank'][:-1])):
+                epoch == 0 or history.values['val_mean_rec_rank'][-1] >= np.max(history.values['val_mean_rec_rank'][:-1])):
+            save_best_to = save_best_to.format(epoch=epoch)  # if there is no substring {epoch}, this doesn't have an effect
             # TODO: Using save on the model here directly gives an error.
             torch.save(net.state_dict(), save_best_to)
             print()

@@ -459,7 +459,7 @@ def block_diagonal(blocks):
 
 
 class AdditiveRelationalGraphConvolution(nn.Module):
-    def __init__(self, size_in, size_out, num_nodes, num_relations, in_features_func, relational_adj_dict, train_triples,
+    def __init__(self, size_in, size_out, num_nodes, num_relations, in_features_func, train_triples,
                  num_sample_train=10, num_sample_eval=None, activation=F.relu, verbose=False):
         nn.Module.__init__(self)
 
@@ -563,7 +563,7 @@ class AdditiveRelationalGraphConvolution(nn.Module):
 
 
 class LoopRelationalGraphConvolution(nn.Module):
-    def __init__(self, size_in, size_out, num_nodes, num_relations, in_features_func, relational_adj_dict, train_triples,
+    def __init__(self, size_in, size_out, num_nodes, num_relations, in_features_func, train_triples,
                  num_sample_train=10, num_sample_eval=None, activation=F.relu, verbose=False):
         nn.Module.__init__(self)
 
@@ -658,7 +658,7 @@ class LoopRelationalGraphConvolution(nn.Module):
 
 
 class TensorRelationalGraphConvolution(nn.Module):
-    def __init__(self, size_in, size_out, num_nodes, num_relations, in_features_func, relational_adj_dict, train_triples,
+    def __init__(self, size_in, size_out, num_nodes, num_relations, in_features_func, train_triples,
                  num_sample_train=10, num_sample_eval=None, activation=F.relu, verbose=False):
         nn.Module.__init__(self)
 
