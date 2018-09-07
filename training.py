@@ -318,7 +318,8 @@ def train_via_classification(net, train_triples, val_triples, optimizer, num_nod
             #     writer.add_scalar('val_hits_10', val_hits_10, epoch)
 
         # -------------------- Saving --------------------
-        if save_best_to is not None and (
+        # TODO: Pass val_mean_rec_rank as parameter here.
+        if not dry_run and save_best_to is not None and (
                 epoch == 0 or history.values['val_mean_rec_rank'][-1] >= np.max(history.values['val_mean_rec_rank'][:-1])):
             save_best_to = save_best_to.format(epoch=epoch)  # if there is no substring {epoch}, this doesn't have an effect
             # TODO: Using save on the model here directly gives an error.

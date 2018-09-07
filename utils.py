@@ -11,6 +11,7 @@ import collections
 import os
 from tqdm import tqdm_notebook
 from sklearn.model_selection import train_test_split
+from sklearn.model_selection import ParameterGrid
 
 import torch
 import random
@@ -360,8 +361,10 @@ class History(object):
             if print_:
                 print(name + '    :', value)
                 print(val_name + ':', val_value)
+                print()
         elif print_:
             print(name + ':', value)
+            print()
 
     def last(self, name=None):
         if name is not None:
@@ -427,3 +430,57 @@ class History(object):
         h.values.update(contents['values'])  # need to update so that values stays a defaultdict
         h.params = contents['params']
         return h
+
+
+class GridSearch(object):
+
+    # TODO: Add multiple runs per parameter config.
+    def __init__(self, log_dir, param_grid=None, resume=True):
+        self.log_dir = log_dir
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+
+        self.jobs_filename = os.path.join(log_dir, 'jobs.json')
+
+        if resume and os.path.exists(self.jobs_filename):  # resume
+            with open(self.jobs_filename) as f:
+                self.jobs = json.load(f)
+        else:  # init a new run
+            if param_grid is None:
+                raise ValueError('Could not resume a previous run, param_grid must not be None')
+            self.jobs = []
+            for i, params in enumerate(ParameterGrid(param_grid)):
+                # Each job is a dict with fields `index`, `params` (dict of
+                # hyperparameters), `status` (one of: 'not started', 'running', 'done').
+                self.jobs.append({'index': i, 'params': params, 'status': 'not started'})
+            self._write_jobs_status()
+
+    def __repr__(self):
+        return 'GridSearch with {} jobs:\n{}'.format(len(self.jobs), '\n'.join(str(job) for job in self.jobs))
+
+    def _write_jobs_status(self):
+        with open(self.jobs_filename, 'w') as f:
+            json.dump(self.jobs, f)
+
+    def run(self, func):
+        print('Starting hyperparameter optimization (logging to {})'.format(self.log_dir))
+        print('=' * 80)
+        for job in self.jobs:
+            if job['status'] == 'done':
+                print('Skipping run {} with parameters {}, is already done'.format(job['index'], job['params']))
+            else:
+                if job['status'] == 'not started':
+                    print('Starting run {} with parameters {}'.format(job['index'], job['params']))
+                else:
+                    print('Restarting run {} with parameters {}'.format(job['index'], job['params']))
+                    print('WARNING: This run was already started before, so files will be overwritten')
+                print('=' * 80)
+                history = History(desc='Run {} of hyperparameter search'.format(job['index']), params=job['params'])
+                job['status'] = 'running'
+                self._write_jobs_status()
+                func(job['index'], job['params'], history)
+                history.save(os.path.join(self.log_dir, str(job['index']) + '.json'))
+                job['status'] = 'done'
+                self._write_jobs_status()
+
+
