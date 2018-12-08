@@ -1,6 +1,7 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 import torch
 from sklearn.model_selection import ParameterGrid
+import torch.nn.functional as F
 
 import utils
 from models import UnsupervisedRGCN, DistMult
@@ -34,26 +35,26 @@ node_features = None
 
 
 
-log_dir = 'logs/1'
+log_dir = 'logs/4'
 # TODO: Fix this.
 #log_index = utils.next_log_index('logs')
-param_grid = {'embedding_size': [200, 500], 'dropout': [0.2, 0.5, 0.8], 'lr': [0.001, 0.0005], 'batch_size': [128]}
+param_grid = {'num_sample': [10, 20], 'embedding_size': [200, 500], 'dropout': [0.2, 0.5, 0.8], 'lr': [0.0005], 'batch_size': [128]}
 
 print()
 print()
 
 def run(i, params, history):
     # TODO: Make device parameter obsolete by moving everything to the device once .to(device) is called.
-    # net = UnsupervisedRGCN(num_nodes, num_relations, train_triples, embedding_size=params['embedding_size'],
-    #                        dropout=params['dropout'], num_sample_train=params['num_sample_train'],
-    #                        num_sample_eval=params['num_sample_eval'], activation=F.elu,
-    #                        node_features=node_features, device=device)
-    net = DistMult(params['embedding_size'], num_nodes, num_relations, params['dropout'])
+    net = UnsupervisedRGCN(num_nodes, num_relations, train_triples, embedding_size=params['embedding_size'],
+                           dropout=params['dropout'], num_sample_train=params['num_sample'],
+                           num_sample_eval=params['num_sample'], activation=F.elu,
+                           node_features=node_features, device=device)
+    # net = DistMult(params['embedding_size'], num_nodes, num_relations, params['dropout'])
     net.to(device)
     optimizer = torch.optim.Adam(filter(lambda parameter: parameter.requires_grad, net.parameters()), lr=params['lr'])
 
     train_via_classification(net, train_triples, val_triples, optimizer, num_nodes, train_ranker, val_ranker,
-                             num_epochs=10, batch_size=params['batch_size'], batch_size_eval=512, device=device,
+                             num_epochs=20, batch_size=params['batch_size'], batch_size_eval=512, device=device,
                              history=history, dry_run=dry_run, ranking_eval=ranking_eval,
                              save_best_to=os.path.join(log_dir, '{}_best-model_epoch-{{epoch}}.pt'.format(i)))
 

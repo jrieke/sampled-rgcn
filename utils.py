@@ -9,6 +9,8 @@ import itertools
 from collections import OrderedDict, Callable
 import collections
 import os
+import sys
+import cStringIO
 from tqdm import tqdm_notebook
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import ParameterGrid
@@ -343,12 +345,20 @@ def next_log_index(log_dir):
 class History(object):
     """Class which stores metrics for each batch or epoch."""
 
-    def __init__(self, desc='', params=None):
+    def __init__(self, desc='', params=None, log_stdout=False):
         super(History, self).__init__()
         self.values = collections.defaultdict(list)
         self.timestamp = get_timestamp()
         self.desc = desc
         self.params = params
+        self.stdout = ''
+        self.log_stdout = log_stdout
+        if log_stdout:
+            self.string_logger = StringLogger().attach()
+
+    def _fetch_stdout(self):
+        if self.log_stdout:
+            self.stdout = self.string_logger.get_output()
 
     def __repr__(self):
         return 'History from {} with metrics {}'.format(self.timestamp, self.values.keys())
@@ -390,11 +400,17 @@ class History(object):
                 try:
                     compare_to[i] = History.load(compare_to[i])
                 except:
-                    pass
+                    compare_to[i] = None
+            compare_to = filter(lambda x: x is not None, compare_to)
 
-        fig, axes = plt.subplots(len(names), sharex=True, figsize=figsize)
+        histories = [self] + compare_to
+        lines = []
 
-        for name, ax in zip(names, axes):
+        non_val_names = filter(lambda name: not name.startswith('val_'), self.values.keys())
+
+        fig, axes = plt.subplots(len(non_val_names), sharex=True, figsize=figsize)
+
+        for name, ax in zip(non_val_names, axes):
             plt.sca(ax)
             plt.grid()
             plt.ylabel(name)
@@ -402,12 +418,14 @@ class History(object):
                 plt.xlim(*xlim)
 
             color_cycle = itertools.cycle(plt.rcParams['axes.prop_cycle'].by_key()['color'])  # default mpl colors
-            for h in [self] + compare_to:
+            for h in histories:
                 color = next(color_cycle)
                 if name in h.values:
-                    plt.plot(h.values[name], color=color)
+                    lines.append(plt.plot(h.values[name], color=color)[0])
                 if plot_val and 'val_' + name in h.values:
                     plt.plot(h.values['val_' + name], color=color, linestyle='--')
+
+        fig.legend(lines, [h.params for h in histories])
 
         axes[-1].set_xlabel('Epoch')
 
@@ -417,18 +435,22 @@ class History(object):
                                         compare_to=filenames[1:])
 
     def save(self, filename):
+        if self.log_stdout:
+            self._fetch_stdout()
         with open(filename, 'w') as f:
-            json.dump(self.__dict__, f)
+            json.dump({k: v for k, v in self.__dict__.items() if k in ['values', 'timestamp', 'desc', 'params', 'stdout', 'log_stdout']}, f)
+
 
     @staticmethod
     def load(filename):
-        h = History()
-        with open('test.json') as f:
+        with open(filename) as f:
             contents = json.load(f)
+        h = History()#log_stdout=contents['log_stdout'])
         h.timestamp = contents['timestamp']
         h.desc = contents['desc']
-        h.values.update(contents['values'])  # need to update so that values stays a defaultdict
+        h.values.update(contents['values'])  # use update here so that `values` is a defaultdict
         h.params = contents['params']
+        #h.stdout = contents['stdout']
         return h
 
 
@@ -440,10 +462,8 @@ class GridSearch(object):
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
 
-        self.jobs_filename = os.path.join(log_dir, 'jobs.json')
-
-        if resume and os.path.exists(self.jobs_filename):  # resume
-            with open(self.jobs_filename) as f:
+        if resume and os.path.exists(self._get_jobs_filename()):  # resume
+            with open(self._get_jobs_filename()) as f:
                 self.jobs = json.load(f)
         else:  # init a new run
             if param_grid is None:
@@ -452,35 +472,110 @@ class GridSearch(object):
             for i, params in enumerate(ParameterGrid(param_grid)):
                 # Each job is a dict with fields `index`, `params` (dict of
                 # hyperparameters), `status` (one of: 'not started', 'running', 'done').
-                self.jobs.append({'index': i, 'params': params, 'status': 'not started'})
-            self._write_jobs_status()
+                self.jobs.append({'index': i, 'params': params, 'status': 'not started', 'history': ''})
+            self._write_jobs_file()
 
     def __repr__(self):
         return 'GridSearch with {} jobs:\n{}'.format(len(self.jobs), '\n'.join(str(job) for job in self.jobs))
 
-    def _write_jobs_status(self):
-        with open(self.jobs_filename, 'w') as f:
+    def _write_jobs_file(self):
+        with open(self._get_jobs_filename(), 'w') as f:
             json.dump(self.jobs, f)
+
+    def _get_history_filename(self, job):
+        return os.path.join(self.log_dir, str(job['index']) + '.json')
+
+    def load_all_histories(self):
+        """Loads the History objects of all jobs and returns a dict of job index: history pairs."""
+        # TODO: Maybe integrate this with the jobs array better.
+        # TODO: Maybe make an extra class Histories, which holds multiple History objects and has a function plot, max/min, etc.
+        # TODO: Maybe store path to history and best model in the jobs object, so that it's easier to access and load them.
+        histories = {}
+        for job in self.jobs:
+            try:
+                histories[job['index']] = History.load(self._get_history_filename(job))
+            except IOError:
+                pass
+        return histories
+
+    def get_best_value(self, metric):
+        """Find the run with the best value for a given metric. Return the index of this run, the epoch with the best value and the best value itself."""
+        # TODO: Add parameter mode, which can be 'max' or 'min'.
+
+        best_value = None
+        best_index = None
+        best_epoch = None
+
+        for index, history in self.load_all_histories().iteritems():
+            value = np.max(history.values[metric])
+            if best_value is None or value > best_value:
+                best_value = value
+                best_index = index
+                best_epoch = np.argmax(history.values[metric])
+
+        return best_index, best_epoch, best_value
+
+    def _get_jobs_filename(self):
+        return os.path.join(self.log_dir, 'jobs.json')
 
     def run(self, func):
         print('Starting hyperparameter optimization (logging to {})'.format(self.log_dir))
         print('=' * 80)
         for job in self.jobs:
-            if job['status'] == 'done':
-                print('Skipping run {} with parameters {}, is already done'.format(job['index'], job['params']))
+            if job['status'] in ['done', 'running']:
+                print('Skipping run {} with parameters {}, is already done or running'.format(job['index'], job['params']))
             else:
                 if job['status'] == 'not started':
                     print('Starting run {} with parameters {}'.format(job['index'], job['params']))
-                else:
-                    print('Restarting run {} with parameters {}'.format(job['index'], job['params']))
-                    print('WARNING: This run was already started before, so files will be overwritten')
+                #else:
+                #    print('Restarting run {} with parameters {}'.format(job['index'], job['params']))
+                #    print('WARNING: This run was already started before, so files will be overwritten')
                 print('=' * 80)
+
                 history = History(desc='Run {} of hyperparameter search'.format(job['index']), params=job['params'])
                 job['status'] = 'running'
-                self._write_jobs_status()
+                self._write_jobs_file()
                 func(job['index'], job['params'], history)
-                history.save(os.path.join(self.log_dir, str(job['index']) + '.json'))
+                history.save(self._get_history_filename((job)))
                 job['status'] = 'done'
-                self._write_jobs_status()
+                self._write_jobs_file()
+
+    def plot(self, filter_params=None, **kwargs):
+        jobs_to_plot = filter(lambda job: job['status'] in ['done', 'running'], self.jobs)
+        if filter_params is not None:
+            # TODO: Make it so that values can be either a single value or an iterable of values.s
+            for param, values in filter_params.items():
+                jobs_to_plot = filter(lambda job: job['params'][param] in values, jobs_to_plot)
+        History.plot_from_file(map(self._get_history_filename, jobs_to_plot), **kwargs)
 
 
+class StringLogger(object):
+    """
+    Write stdout to a string buffer in addition to the terminal.
+    Adapted from https://stackoverflow.com/questions/14906764/how-to-redirect-stdout-to-both-file-and-console-with-scripting
+    """
+
+    def __init__(self):
+        self.terminal = sys.stdout
+        self.string_io = cStringIO.StringIO()
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.string_io.write(message)
+
+    def flush(self):
+        # this flush method is needed for python 3 compatibility.
+        # this handles the flush command by doing nothing.
+        # you might want to specify some extra behavior here.
+        pass
+
+    def get_output(self):
+        return self.string_io.getvalue()
+
+    def attach(self):
+        sys.stdout = self
+        return self
+
+    def detach(self):
+        sys.stdout = self.terminal
+        return self
